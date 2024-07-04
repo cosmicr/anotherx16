@@ -67,20 +67,28 @@
 .macro calc_slope xa, ya, xb, yb, slope
 .scope
     ; Calculate dx = xb - xa (24-bit)
-    lda xb
     sec
+    lda xb
     sbc xa
     sta dx
-    lda #0
-    sbc #0
+    lda xb+1
+    sbc xa+1
     sta dx+1
-    sta dx+2  ; Sign extend to 24 bits
+    ; extend sign if dx is negative
+    stz dx+2
+    lda dx+1
+    bpl @positive
+    lda #$FF
+    sta dx+2
+    @positive:
 
     ; Calculate dy = yb - ya (24-bit)
     lda yb
     sec
     sbc ya
     sta dy
+    stz dy+1
+    stz dy+2
 
     lda dy
     beq @zero  ; if dy = 0, slope = 0
@@ -108,7 +116,7 @@
     ; Result is now in A (low) and X (high)
     sta slope
     stx slope+1
-    cpx #$80        ; Check for negative result and store sign bit
+    cpx #$80        ; Check for negative result and set carry bit
     ror slope+1     ; rotate sign bit into high byte
     ror slope       ; slope = slope >> 1
     bra @finish
@@ -118,6 +126,41 @@
     stz slope+1
 @finish:
 .endscope
+.endmacro
+
+.macro clamp_zero var
+    lda var+1
+    beq :+
+    stz var
+    stz var+1
+    :
+.endmacro
+
+.macro clamp_y var, max
+    lda var
+    cmp max
+    bcc :+
+    lda max
+    sta var
+    :
+.endmacro
+
+.macro clamp_high var, max
+    lda var    ; Load low byte
+    cmp max    ; Compare with max
+    bcc :+     ; If less than max, check high byte
+    bne :++    ; If greater than max, clamp
+    
+:   ; Low byte equals max, check high byte
+    lda var+1
+    beq :++    ; If high byte is zero, we're done
+    
+:   ; Clamp to max
+    lda max
+    sta var
+    stz var+1
+    
+:   ; Done
 .endmacro
 
 ; ---------------------------------------------------------------
@@ -180,7 +223,7 @@ set_vera_page_2:
     sta VERA::L0::TILE_BASE
     rts
 
-set_vera_page_3:
+set_vera_page_3:    ; todo: I don't think page 3 is needed
     lda #($16800>>9)
     sta VERA::L0::TILE_BASE
     rts
@@ -461,13 +504,7 @@ set_addr_page_3:
     left_slope = work+19     ; 16 bit
     right_slope = work+21    ; 16 bit
 
-    ; calculate height (y4-y1)
-    lda y4
-    sec
-    sbc y1
-    sta height
-
-    ; TODO: how to clip the quad?
+    ; TODO: draw the quad elsewhere (scratch buffer) and copy it based on bounding box to position?
 
     ; calculate left slope (x1,y1,x2,y2)
     calc_slope x1, y1, x2, y2, left_slope
@@ -475,13 +512,43 @@ set_addr_page_3:
     ; calculate right slope (x3,y3,x4,y4)
     calc_slope x3, y3, x4, y4, right_slope
 
+    ; subtract 128 from x values
+    ; sub16 x1, 255
+    ; sub16 x2, 255
+    ; sub16 x3, 255
+    ; sub16 x4, 255
+    ; clamp_zero x1
+    ; clamp_zero x2
+    ; clamp_zero x3
+    ; clamp_zero x4
+    ; clamp_y y1, #191
+    ; clamp_y y2, #191
+    ; clamp_y y3, #191
+    ; clamp_y y4, #191
+    ; todo: do we need to even clamp?
+    ; clamp_high x1, #239
+    ; clamp_high x2, #239
+    ; clamp_high x3, #239
+    ; clamp_high x4, #239
+
+    ; calculate height (y4-y1)
+    lda y4
+    sec
+    sbc y1
+    sta height
+stp
+    ; lda state+engine::draw_page
+    ; lda state+engine::display_page
+    lda #3
+    jsr set_addr_page
+    lda #0
+    jsr clear_page
+    lda #3
+    jsr set_addr_page
+
     ; Enter FX Control Mode (2)
     lda #(2<<1)     ;#VERA::DCSEL::MODE2
     sta VERA::CTRL
-
-    lda state+engine::draw_page
-    ;lda state+engine::display_page
-    jsr set_addr_page
 
     ; Add y1 * 160 to the address
     ldx y1
@@ -524,10 +591,12 @@ set_addr_page_3:
 
     lda x1
     sta $9F29       ; FX_X_POS_L
-    stz $9F2A       ; FX_X_POS_H
+    lda x1+1
+    sta $9F2A       ; FX_X_POS_H
     lda x3
     sta $9F2B       ; FX_Y_POS_L
-    stz $9F2C       ; FX_Y_POS_H
+    lda x3+1
+    sta $9F2C       ; FX_Y_POS_H
 
     ; Set ADDR1 increment to a nibble
     lda VERA::ADDR+2
@@ -537,6 +606,164 @@ set_addr_page_3:
 
     ldy height
     jsr fill_quad
+
+    ; copy the page to the display page at coords
+    ; set dcsel to 2 and clear $9f29 first
+    lda #(2<<1)     ;#VERA::DCSEL::MODE2
+    sta VERA::CTRL
+    stz $9F29
+    stz VERA::CTRL
+    jsr copy_rect
+    stz VERA::CTRL  ; back to 0
+    rts
+.endproc
+
+; ---------------------------------------------------------------
+; Copy rect using polygon_data
+; ---------------------------------------------------------------
+.proc copy_rect
+    x1 = work
+    y1 = work+2
+    diff = work+3 ; 160 - width
+    col = work+4
+
+    lda #3
+    jsr set_addr_page
+    lda #VERA::INC1
+    ora VERA::ADDR+2
+    sta VERA::ADDR+2
+
+    ; calculate topleftX
+    lda polygon_info+polygon_data::width
+    lsr
+    sta x1
+    sec
+    lda polygon_info+polygon_data::center_x
+    sbc x1
+    sta x1    ; topleftX = center_x - width/2
+    lda polygon_info+polygon_data::center_x+1
+    sbc #0
+    sta x1+1
+    beq :+
+    stz x1
+    :
+    lsr x1
+
+    ; calculate topleftY
+    lda polygon_info+polygon_data::height
+    lsr
+    sta y1
+    sec
+    lda polygon_info+polygon_data::center_y
+    sbc y1
+    sta y1    ; topleftXY = y_val - height/2
+    beq :+
+    stz y1
+    :
+
+    ; calculate diff from edge of rect to next line
+    ; lda #<320
+    ; sec
+    ; sbc polygon_info+polygon_data::width
+    ; lsr
+    ; sta diff
+
+    ; Set data port to 1
+    lda #1
+    sta VERA::CTRL
+    
+    ; set the destination address to the start of the page
+    lda state+engine::draw_page
+    jsr set_addr_page
+
+    ; calc loop count (height - y1)
+    lda polygon_info+polygon_data::height
+    sec
+    sbc y1
+    sta diff
+stp
+    ldy y1
+    loop_y:
+        clc
+        ; add x1 to destination address 0
+        lda x1
+        adc VERA::ADDR
+        sta VERA::ADDR
+        lda #0
+        adc VERA::ADDR+1
+        sta VERA::ADDR+1
+        lda #0
+        adc VERA::ADDR+2
+        sta VERA::ADDR+2    ; x1 added to start
+        lda polygon_info+polygon_data::width
+        lsr
+        tax
+        loop_x:
+            lda VERA::DATA0    ; Load the byte from DATA0
+            pha                ; Store original value in X for later use
+            and #$0F           ; Isolate the lower nibble
+            beq skip_lower     ; If lower nibble is zero, skip it
+            sta col           ; Store lower nibble in a temporary variable
+            lda VERA::DATA1    ; Load the current value of DATA1
+            and #$F0           ; Clear the lower nibble of DATA1
+            ora col           ; Combine with the non-zero lower nibble from DATA0
+            sta VERA::DATA1    ; Store the result back to DATA1
+
+            skip_lower:
+            pla                ; Retrieve original DATA0 value from X
+            and #$F0           ; Isolate the upper nibble
+            beq done           ; If upper nibble is zero, we're done
+            sta col           ; Store upper nibble in a temporary variable
+            lda VERA::DATA1    ; Load the current value of DATA1 again
+            and #$0F           ; Clear the upper nibble of DATA1
+            ora col           ; Combine with the non-zero upper nibble from DATA0
+            sta VERA::DATA1    ; Store the final result back to DATA1
+
+            done:
+            lda #1
+            sta VERA::CTRL
+            inc16 VERA::ADDR    ; Increment the destination address
+            stz VERA::CTRL
+            inc16 VERA::ADDR    ; Increment the source address
+            plx
+            dex
+            bne loop_x
+
+        ; reset line on source
+        lda #3
+        jsr set_addr_page
+        iny
+        tya
+        sec
+        sbc y1
+        tax
+        clc
+        lda y160_lookup_lo,x
+        adc VERA::ADDR
+        sta VERA::ADDR
+        lda y160_lookup_hi,x
+        adc VERA::ADDR+1
+        sta VERA::ADDR+1
+        lda #0
+        adc VERA::ADDR+2
+        sta VERA::ADDR+2
+        ; reset line on destination
+        lda #1
+        sta VERA::CTRL
+        lda state+engine::draw_page
+        jsr set_addr_page
+        clc
+        lda y160_lookup_lo,y
+        adc VERA::ADDR
+        sta VERA::ADDR
+        lda y160_lookup_hi,y
+        adc VERA::ADDR+1
+        sta VERA::ADDR+1
+        lda #0
+        adc VERA::ADDR+2
+        sta VERA::ADDR+2
+        cpy diff
+        jne loop_y
 
     rts
 .endproc
@@ -641,10 +868,7 @@ set_addr_page_3:
 
     ; Set the pixel color
     lda work
-    asl
-    asl
-    asl
-    asl
+    asl_a 4
     ora work
     sta VERA::DATA0
 

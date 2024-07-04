@@ -9,8 +9,8 @@
 
 .struct polygon_data
     offset          .word
-    x_val           .word
-    y_val           .word
+    center_x        .word
+    center_y        .word
     zoom            .byte
     color           .byte
     width           .byte

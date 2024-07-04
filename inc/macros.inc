@@ -83,6 +83,16 @@
   sta addr+1
 .endmacro
 
+.macro sub16 addr, value
+  sec
+  lda addr
+  sbc #<value
+  sta addr
+  lda addr+1
+  sbc #>value
+  sta addr+1
+.endmacro
+
 .macro add16_addr addra, addrb
   clc
   lda addra
@@ -129,4 +139,9 @@
     ldx c2
     sta c2
     stx c1
+.endmacro
+
+.macro swap16 c1, c2
+    swap c1, c2
+    swap c1+1, c2+1
 .endmacro

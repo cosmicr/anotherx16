@@ -314,25 +314,25 @@
     asl16_addr polygon_info+polygon_data::offset, 1 ; offset *= 2
 
     jsr read_script_byte
-    sta polygon_info+polygon_data::x_val
-    stz polygon_info+polygon_data::x_val+1
+    sta polygon_info+polygon_data::center_x
+    stz polygon_info+polygon_data::center_x+1
     jsr read_script_byte
-    sta polygon_info+polygon_data::y_val
-    stz polygon_info+polygon_data::y_val+1
+    sta polygon_info+polygon_data::center_y
+    stz polygon_info+polygon_data::center_y+1
 
     ; x_val += y_val-199 if y_val > 199
     cmp #199
     bcc @skip
     sec
-    sbc #199
+    sbc #199        ; y_val - 199
     clc
-    adc polygon_info+polygon_data::x_val
-    sta polygon_info+polygon_data::x_val
+    adc polygon_info+polygon_data::center_x
+    sta polygon_info+polygon_data::center_x
     lda #0
-    adc polygon_info+polygon_data::x_val+1
-    sta polygon_info+polygon_data::x_val+1
+    adc polygon_info+polygon_data::center_x+1
+    sta polygon_info+polygon_data::center_x+1
     lda #199
-    sta polygon_info+polygon_data::y_val
+    sta polygon_info+polygon_data::center_y
     @skip:
 
     ; load all the relevant values for parse_polygon
@@ -387,25 +387,25 @@
 
     x_16bit_immediate:
         jsr read_script_byte
-        sta polygon_info+polygon_data::x_val+1
+        sta polygon_info+polygon_data::center_x+1
         jsr read_script_byte
-        sta polygon_info+polygon_data::x_val
+        sta polygon_info+polygon_data::center_x
         jmp get_y
 
     x_from_var:
         jsr read_script_byte
         tax
         lda state+engine::vars,x
-        sta polygon_info+polygon_data::x_val
+        sta polygon_info+polygon_data::center_x
         lda state+engine::vars+256,x
-        sta polygon_info+polygon_data::x_val+1
+        sta polygon_info+polygon_data::center_x+1
         jmp get_y
 
     x_8bit_plus_256:
         jsr read_script_byte
-        sta polygon_info+polygon_data::x_val
+        sta polygon_info+polygon_data::center_x
         lda #1
-        sta polygon_info+polygon_data::x_val+1
+        sta polygon_info+polygon_data::center_x+1
         ; fall through to get_y
 
     get_y:
@@ -424,9 +424,9 @@
 
     y_16bit_immediate:
         jsr read_script_byte
-        sta polygon_info+polygon_data::y_val+1
+        sta polygon_info+polygon_data::center_y+1
         jsr read_script_byte
-        sta polygon_info+polygon_data::y_val
+        sta polygon_info+polygon_data::center_y
         bra get_zoom
 
     y_from_var:
@@ -434,15 +434,15 @@
         asl             ; Multiply by 2 to get the correct offset in vars
         tax
         lda state+engine::vars,x
-        sta polygon_info+polygon_data::y_val
+        sta polygon_info+polygon_data::center_y
         lda state+engine::vars+256,x
-        sta polygon_info+polygon_data::y_val+1
+        sta polygon_info+polygon_data::center_y+1
         bra get_zoom
 
     y_8bit_immediate:
         jsr read_script_byte
-        sta polygon_info+polygon_data::y_val
-        stz polygon_info+polygon_data::y_val+1
+        sta polygon_info+polygon_data::center_y
+        stz polygon_info+polygon_data::center_y+1
         ; fall through to get_zoom
     
     ; Get zoom value
