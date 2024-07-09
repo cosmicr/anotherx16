@@ -7,6 +7,17 @@
 .endscope
 .endmacro
 
+.macro inc24 addr
+.scope
+        inc     addr
+        bne     @skip
+        inc     addr+1
+        bne     @skip
+        inc     addr+2
+@skip:
+.endscope
+.endmacro
+
 .macro dec16    addr
 .scope
         dec     addr
@@ -144,4 +155,57 @@
 .macro swap16 c1, c2
     swap c1, c2
     swap c1+1, c2+1
+.endmacro
+
+; --------------------------------------------------------------------------------------------
+; Macros for test comparison
+; C=1 if M <= A     C=0 if A < M      Z=1 if A = M    Z=0 if A != M
+; C=0 if M > A      C=1 if A >= M     Z=0 if A != M   Z=1 if A = M
+; --------------------------------------------------------------------------------------------
+; A > M (C=1 and Z=0)
+.macro cmp_gt val_A, val_M, true_label
+.scope
+  lda val_A
+  cmp val_M
+  bcc @cmp_gt_false
+  beq @cmp_gt_false
+  bra true_label
+@cmp_gt_false:
+.endscope
+.endmacro
+
+; A >= M (C=1)
+.macro cmp_ge val_A, val_M, true_label
+  lda val_A
+  cmp val_M
+  bcs true_label
+.endmacro
+
+; A < M (C=0)
+.macro cmp_lt val_A, val_M, true_label
+  lda val_A
+  cmp val_M
+  bcc true_label
+.endmacro
+
+; A <= B (C=0 or Z=1)
+.macro cmp_le val_A, val_M, true_label
+  lda val_A
+  cmp val_M
+  beq true_label
+  bcc true_label
+.endmacro
+
+; A == B (Z=1)
+.macro cmp_eq val_A, val_M, true_label
+  lda val_A
+  cmp val_M
+  beq true_label
+.endmacro
+
+; A != B (Z=0)
+.macro cmp_ne val_A, val_M, true_label
+  lda val_A
+  cmp val_M
+  bne true_label
 .endmacro

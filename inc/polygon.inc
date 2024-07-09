@@ -4,7 +4,7 @@
 ; ---------------------------------------------------------------
 
 .global parse_polygon
-.global polygon_info
+.global polygon_info, line_info
 .globalzp x1, y1, x2, y2, x3, y3, x4, y4
 
 .struct polygon_data
@@ -19,4 +19,10 @@
     vertices        .res 64
     polygons        .word
 .endstruct
-    
+
+.struct line_data
+    x1              .word
+    x2              .word
+    y1              .byte
+    color           .byte
+.endstruct

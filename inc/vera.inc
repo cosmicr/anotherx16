@@ -6,7 +6,7 @@
 .global init_vera, clear_page, clear_text_screen, clear_page
 .global set_addr_page, set_palette, set_vera_page
 .global copy_page_screen, copy_screen_page, copy_page
-.global draw_quad, plot_pixel
+.global draw_line, plot_pixel
 
 ; ---------------------------------------------------------------
 ; Helper macro to clear VRAM using the 32-bit cache

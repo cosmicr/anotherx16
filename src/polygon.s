@@ -26,14 +26,21 @@
     y1:             .res 1
     x2:             .res 2
     y2:             .res 1
-    x3:             .res 2
-    y3:             .res 1
-    x4:             .res 2
-    y4:             .res 1
+    dx:             .res 1
+    dy:             .res 1
+    sx:             .res 1
+    sy:             .res 1
+    err:            .res 1
+    e2:             .res 1
     ztemp:          .res 2
+    min_x:          .res 2
+    max_x:          .res 2
 
 .segment "DATA"
-    polygon_info:   .tag polygon_data
+    polygon_info:       .tag polygon_data
+    edge_table_left:    .res (2*200)
+    edge_table_right:   .res (2*200)
+    line_info:          .tag line_data
 
 .segment "CODE"
 
@@ -354,9 +361,11 @@ no_sign_extension_2:
     i = work+15
     j = work+16
     num_vertices = work+17
-    
-    lda polygon_info+polygon_data::offset
-    ; topleftX = center_x - width/2
+    x_val = work+18
+    y_val = work+20
+    y_index = work+21
+
+    ; *** topleftX = center_x - width/2
     lda polygon_info+polygon_data::width ; width is already scaled
     lsr
     sta topleftX    ; topleftX = polygon::width >> 1
@@ -364,26 +373,10 @@ no_sign_extension_2:
     lda polygon_info+polygon_data::center_x
     sbc topleftX
     sta topleftX    ; topleftX = center_x - width/2
-    ; bcs @no_underflow   ; todo: the number should be signed - consider 16 bit?
-    ; stz topleftX
-    ; @no_underflow:
     lda polygon_info+polygon_data::center_x+1
     sbc #0
     sta topleftX+1
-
-    ; temp hack remove later
-    clc
-    lda topleftX
-    adc #160
-    sta topleftX
-    lda topleftX+1
-    adc #0
-    sta topleftX+1
-
-    stz topleftX
-    stz topleftX+1
-
-    ; topleftY = y_val - height/2
+    ; *** topleftY = y_val - height/2
     lda polygon_info+polygon_data::height
     lsr
     sta topleftY    ; topleftY = polygon::height >> 1
@@ -392,15 +385,7 @@ no_sign_extension_2:
     sbc topleftY
     sta topleftY    ; topleftXY = y_val - height/2
 
-    stz topleftY
-
-    ; temp hack remove later
-    ; clc
-    ; lda topleftY
-    ; adc #6
-    ; sta topleftY
-
-    ; if num vertices is 4 and height < 2
+    ; *** if num vertices is 4 and height < 2
     lda polygon_info+polygon_data::num_vertices
     cmp #4
     bne @start
@@ -408,97 +393,277 @@ no_sign_extension_2:
     cmp #2
     bcs @start
     ; if width is > 0, draw a line
-
     lda polygon_info+polygon_data::width
     bne @line
-    lda topleftX
-    sbc #128
-    tax
+    ; else draw a pixel
+    ldx topleftX
     lda polygon_info+polygon_data::color
     ldy topleftY
-    jsr plot_pixel
+;    jsr plot_pixel
     jmp finish
 
     @line:
-    ; todo: draw a line
-    ; jmp finish
-
-    lda polygon_info+polygon_data::color
-    ; if color is higher than 15, return
-    cmp #$10
-    jcs finish
+        ; todo: load the vertices into the line_info struct
+        ;jsr draw_line
+        jmp finish
 
     @start:
-    ; Initialize loop variables
-    stz i                       ; i = 0
-    lda polygon_info+polygon_data::num_vertices
-    sta num_vertices            ; num_vertices = polygon::num_vertices
-    dec
-    sta j                       ; j = num_vertices - 1
-    lsr num_vertices
-    dec num_vertices            ; num_vertices = (num_vertices/2) - 1
+        ; *** init edge_table
+        jsr init_edge_table
 
-    loop:
-        ; Get the vertices
-        lda i
-        asl
-        tay
-        get_vertex x1, y1
+        ; *** rasterize edges using bresenham's line algorithm
+        lda polygon_info+polygon_data::num_vertices
+        dec
+        sta j
+        stz i
+        raster_loop:
+            ; while i < num_vertices
+            lda i
+            cmp polygon_info+polygon_data::num_vertices
+            beq done_raster
 
-        iny
-        get_vertex x2, y2
+            lda j
+            asl
+            tay
+            lda polygon_info+polygon_data::vertices,y
+            clc
+            adc topleftX
+            sta x1
+            iny
+            lda polygon_info+polygon_data::vertices,y
+            clc
+            adc topleftY
+            sta y1
 
-        ; Get the vertices from the back
-        lda j
-        asl
-        tay
-        get_vertex x3, y3
+            lda i
+            asl
+            tay
+            lda polygon_info+polygon_data::vertices,y
+            clc
+            adc topleftX
+            sta x2
+            iny
+            lda polygon_info+polygon_data::vertices,y
+            clc
+            adc topleftY
+            sta y2
 
-        dey
-        dey
-        dey
-        get_vertex x4, y4
+            jsr rasterize_edge
+            lda i
+            sta j
+            inc i
+            bra raster_loop
 
-        ; todo: note y3=y1 and y4=y2 for speed
+        done_raster:
+        ; *** draw horizontal lines between min_x and max_x for each y
+        ldy #0   ; todo: this could start at first y coord
+        draw_loop:
+            lda edge_table_left,y
+            sta min_x
+            lda edge_table_right,y
+            sta max_x
 
-; Swap x1 and x3 if x1 > x3
-        lda x1+1
-        cmp x3+1
-        bcc @no_swap_x1_x3  ; If x1 high < x3 high, no swap
-        bne @swap_x1_x3     ; If x1 high > x3 high, swap
-        lda x1              ; If high bytes equal, check low bytes
-        cmp x3
-        bcc @no_swap_x1_x3  ; If x1 low < x3 low, no swap
-        beq @no_swap_x1_x3  ; If x1 low = x3 low, no swap
-    @swap_x1_x3:
-        swap16 x1, x3
-        swap y1, y3
-    @no_swap_x1_x3:
+            ; if min_x = $FF then skip
+            lda min_x
+            cmp #$FF
+            beq skip
+            @continue:
 
-; Swap x2 and x4 if x2 > x4
-        lda x2+1
-        cmp x4+1
-        bcc @no_swap_x2_x4  ; If x2 high < x4 high, no swap
-        bne @swap_x2_x4     ; If x2 high > x4 high, swap
-        lda x2              ; If high bytes equal, check low bytes
-        cmp x4
-        bcc @no_swap_x2_x4  ; If x2 low < x4 low, no swap
-        beq @no_swap_x2_x4  ; If x2 low = x4 low, no swap
-    @swap_x2_x4:
-        swap16 x2, x4
-        swap y2, y4
-    @no_swap_x2_x4:
+            lda min_x
+            sta line_info+line_data::x1 ; todo: can be optimised above
+            lda max_x
+            sta line_info+line_data::x2
+            tya
+            sta line_info+line_data::y1
+            phy
+            jsr draw_line
+            ply
 
-        @draw:
-        jsr draw_quad
-
-        @next:
-        inc i
-        dec j
-        ldx i
-        cpx num_vertices
-        jne loop
+            skip:
+            iny
+            cpy #200
+            jne draw_loop
 
     finish:
+    rts
+.endproc
+
+; ---------------------------------------------------------------
+; Initialize the edge table left with zeros, and right with $FFFF
+; ---------------------------------------------------------------
+.proc init_edge_table
+    ldx #0
+    lda #$FF
+    @loop_lo:
+        sta edge_table_left,x
+        sta edge_table_left+200,x   ; note: remember that each low and high byte of the value is x, x+200
+        inx
+        cpx #200
+        bne @loop_lo
+
+    ldx #0
+    lda #0
+    @loop_hi:
+        sta edge_table_right,x
+        sta edge_table_right+200,x
+        inx
+        cpx #200
+        bne @loop_hi
+    rts
+.endproc
+
+; ---------------------------------------------------------------
+; Rasterize an edge using Bresenham's line algorithm
+; ---------------------------------------------------------------
+.proc rasterize_edge
+    stp
+    ; *** dx = abs(x2 - x1)
+    lda x2
+    sec
+    sbc x1
+    bcs store_dx  ; If the result is positive or zero, store it directly
+    eor #$FF
+    clc
+    adc #1
+    store_dx:
+        sta dx
+
+    ; *** dy = -abs(y2 - y1)
+    lda y2
+    sec
+    sbc y1
+    bcs store_dy  ; If the result is positive or zero, store it directly
+    eor #$FF
+    clc
+    adc #1
+    store_dy:
+        sta dy
+        eor #$FF
+        clc
+        adc #1
+        sta dy
+
+    ; *** sx = 1 if x1 < x2, else -1
+    cmp_lt x1, x2, @x1_less_than_x2
+    lda #$FF
+    sta sx
+    bra @done_sx
+    @x1_less_than_x2:
+        lda #1
+        sta sx
+    @done_sx:
+
+    ; *** sy = 1 if y1 < y2, else -1
+    cmp_lt y1, y2, @y1_less_than_y2
+    lda #$FF
+    sta sy
+    bra @done_sy
+    @y1_less_than_y2:
+        lda #1
+        sta sy
+    @done_sy:
+
+    ; *** err = dx +dy
+    lda dx
+    clc
+    adc dy
+    sta err
+
+    loop:
+        jsr update_edge_table
+
+        ; if x1 == x2 and y1 == y2, break
+        lda x1
+        cmp x2
+        bne @not_done
+        lda y1
+        cmp y2
+        beq done
+        @not_done:
+
+        ; e2 = err << 1
+        lda err
+        asl
+        sta e2
+
+        ; if e2 >= dy, err += dy, x1 += sx
+        cmp_ge e2, dy, e2_greater_than_dy
+        bra skip_e2_dy
+        e2_greater_than_dy:
+        lda x1
+        cmp x2
+        beq done
+        lda err
+        clc
+        adc dy
+        sta err
+        lda x1
+        clc
+        adc sx
+        sta x1
+        skip_e2_dy:
+
+        ; if e2 <= dx, err += dx, y1 += sy
+        cmp_le e2, dx, e2_less_than_dx
+        bra skip_e2_dx
+        e2_less_than_dx:
+        lda y1
+        cmp y2
+        beq done
+        lda err
+        clc
+        adc dx
+        sta err
+        lda y1
+        clc
+        adc sy
+        sta y1
+        skip_e2_dx:
+
+        bra loop
+
+    done:
+    rts
+.endproc
+
+; ---------------------------------------------------------------
+; Update the edge table
+; ---------------------------------------------------------------
+.proc update_edge_table
+    ; set min_x and max_x to the y1 index in the edge table
+    ldx y1
+    lda edge_table_left,x
+    sta min_x
+    lda edge_table_right,x
+    sta max_x
+
+    ; if y1 >= 200 return ; todo: move up for early exit
+    cmp_ge y1, #200, done
+
+    ; todo: if x1 < 0 then ptemp = 0?
+
+    ; if min_x > x1 then min_x = x1
+    cmp_gt min_x, x1, min_x_greater_than_x1
+    bra skip_min_x
+    min_x_greater_than_x1:
+        lda x1
+        sta min_x
+    skip_min_x:
+
+    ; if max_x < x1 then max_x = x1
+    cmp_lt max_x, x1, max_x_less_than_x1
+    bra skip_max_x
+    max_x_less_than_x1:
+        lda x1
+        sta max_x
+    skip_max_x:
+
+    ; update edge_table
+    lda min_x
+    sta edge_table_left,x
+    lda max_x
+    sta edge_table_right,x
+
+    done:
     rts
 .endproc
