@@ -1,28 +1,28 @@
 .macro  inc16   addr
 .scope
-        inc     addr
-        bne     @skip
-        inc     addr+1
+  inc     addr
+  bne     @skip ; if we hit zero, increment the high byte
+  inc     addr+1
 @skip:
 .endscope
 .endmacro
 
 .macro inc24 addr
 .scope
-        inc     addr
-        bne     @skip
-        inc     addr+1
-        bne     @skip
-        inc     addr+2
+  inc     addr
+  bne     @skip
+  inc     addr+1
+  bne     @skip
+  inc     addr+2
 @skip:
 .endscope
 .endmacro
 
 .macro dec16    addr
 .scope
-        dec     addr
-        bne     @skip
-        dec     addr+1
+  dec     addr
+  bne     @skip
+  dec     addr+1
 @skip:
 .endscope
 .endmacro
@@ -51,6 +51,7 @@
   .endrepeat
 .endmacro
 
+; these are quite slow, only meant for testing
 .macro mulx addr, multiplier
   lda #0
   .repeat multiplier
@@ -81,6 +82,31 @@
   bne @loop        ; If not zero, repeat
 
   pla              ; Clean up the stack (pull the final zero)
+.endscope
+.endmacro
+
+; Multiply two 8 bit values fast, result in A and X (clobbers variables and Y too)
+.macro mulx_addr addra, addrb
+.scope
+  lda #0
+  stz mtemp ; requires a zeropage variable
+  ldx #0
+  beq start
+addition:
+  clc
+  adc addra
+  tay
+  txa
+  adc mtemp
+  tax
+  tya
+loop:
+  asl addra
+  rol mtemp
+start:
+  lsr addrb
+  bcs addition
+  bne loop
 .endscope
 .endmacro
 
@@ -208,4 +234,23 @@
   lda val_A
   cmp val_M
   bne true_label
+.endmacro
+
+; --------------------------------------------------------------------------------------------
+; 16-bit signed comparison
+; A is greater than M when:
+;   A+1 < M+1 (high bytes) because A+1 would be $00 (positive) and M+1 would be $FF (negative
+;   or
+;   A+1 = M+1 (high bytes) = $FF and A > M (low bytes)
+;   or 
+;   A+1 = M+1 (high bytes) = $00 and A > M (low bytes)
+; --------------------------------------------------------------------------------------------
+; A > M (signed)
+.macro cmp_gt_16s val_A, val_M, true_label
+.scope
+  cmp_lt val_A+1, val_M+1, true_label   ; if A+1 < M+1, A < M
+  bne false_label                       ; if high bytes are equal, compare low bytes
+  cmp_gt val_A, val_M, true_label       ; if A > M, A > M
+  false_label:
+.endscope
 .endmacro

@@ -25,12 +25,15 @@
     work:   .res 24
     temp:   .res 4
     read:   .res 4
+    mtemp:  .res 1
+    flag:   .res 1
 
 .segment "CODE"
 
 ; ---------------------------------------------------------------
 ; Main program
 ; ---------------------------------------------------------------
+    stz flag
     jsr init_vera
     jsr init_resources
     jsr init_engine

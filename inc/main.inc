@@ -3,4 +3,4 @@
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
 
-.globalzp work, temp, read
+.globalzp work, temp, read, mtemp, flag

@@ -30,11 +30,19 @@
     dy:             .res 1
     sx:             .res 1
     sy:             .res 1
-    err:            .res 1
-    e2:             .res 1
+    err:            .res 2
+    e2:             .res 2
     ztemp:          .res 2
     min_x:          .res 2
     max_x:          .res 2
+    setup:          .res 1
+    counter:        .res 1
+    resource:       .res 2
+    nx:             .res 2
+    ny:             .res 2
+    num_children:   .res 1
+    off:            .res 2
+    zoom:           .res 1
 
 .segment "DATA"
     polygon_info:       .tag polygon_data
@@ -50,49 +58,6 @@
     ldx poly_ptr+1
     jsr read_byte
     inc16 poly_ptr
-.endmacro
-
-.macro multiply_zoom var
-.scope
-    ; Clear the temporary 16-bit accumulator
-    lda #0
-    sta ztemp
-    sta ztemp+1
-
-    ; Load the input into A
-    lda var
-
-    ; Load the zoom factor
-    ldy polygon_info+polygon_data::zoom
-    beq @done  ; If zoom is zero, result is zero
-
-    ; Perform 16-bit multiplication; todo: faster multiply
-    @loop:
-        lda ztemp
-        clc
-        adc var  ; Add var to low byte of temp
-        sta ztemp
-        lda ztemp+1
-        adc #0   ; Add carry to high byte of temp
-        sta ztemp+1
-        dey
-        bne @loop
-
-    ; At this point, temp:temp+1 contains var * zoom
-
-    ; Now we need to divide by 64 (shift right 6 times)
-    ldx #6
-    @shift_loop:
-        lsr ztemp+1
-        ror ztemp
-        dex
-        bne @shift_loop
-
-    ; Store the final result back into var
-    @done:
-    lda ztemp
-    sta var
-.endscope
 .endmacro
 
 ; #define Scale_Width(x) ((x >> 1) + (x >> 2))
@@ -131,34 +96,21 @@ no_sign_extension_2:
 .endscope
 .endmacro
 
-
-.macro get_vertex ax, ay
-.scope
-    lda polygon_info+polygon_data::vertices,y
-    clc
-    adc topleftX
-    sta ax
-    lda topleftX+1
-    adc #0
-    sta ax+1
-
-    iny
-    lda polygon_info+polygon_data::vertices,y
-    clc
-    adc topleftY
-    sta ay
-.endscope
-.endmacro
-
 ; ---------------------------------------------------------------
 ; Parse polygon info and call draw_polygon
 ; Preliminaries must be set from opcode call
 ; ---------------------------------------------------------------
 .proc parse_polygon
-    setup = work
-    counter = work+1
-    resource = work+2
 
+; debug 0D50
+lda polygon_info+polygon_data::offset
+cmp #$3c
+bne @keepgoing
+lda polygon_info+polygon_data::offset+1
+cmp #$0d
+bne @keepgoing
+inc flag
+@keepgoing:
     ; get the location in memory for the polygon data
     lda polygon_info+polygon_data::polygons
     sta resource
@@ -177,16 +129,11 @@ no_sign_extension_2:
     sta setup
 
     ; if setup is less than $C0 then it's a group polygon
-    and #$C0
+    lda setup
     cmp #$C0
-    jne group_polygon
+    jcc group_polygon
 
     ; *** single polygon ***
-    ; Scale zoom ; todo: zoom is meant to be a fixed point number, so you scale after multiplying
-    lda polygon_info+polygon_data::zoom
-    ; lsr_a 6
-    ; sta polygon_info+polygon_data::zoom    ; todo: faster way by using rol*3, and #3
-
     lda polygon_info+polygon_data::color
     bit #$80
     beq @skip_color
@@ -195,15 +142,13 @@ no_sign_extension_2:
     sta polygon_info+polygon_data::color       ; color = setup & $3F
     @skip_color:
 
+    ; read polygon width
     read_polygon_byte
-    sta ptemp
-    multiply_zoom ptemp
-    scale_x ptemp
+    jsr multiply_zoom
     sta polygon_info+polygon_data::width
 
     read_polygon_byte
-    sta ptemp
-    multiply_zoom ptemp
+    jsr multiply_zoom
     sta polygon_info+polygon_data::height
 
     read_polygon_byte
@@ -215,23 +160,18 @@ no_sign_extension_2:
     loop:
         phx
         read_polygon_byte
-        sta ptemp
-        multiply_zoom ptemp
-        scale_x ptemp
+        jsr multiply_zoom
         plx
         sta polygon_info+polygon_data::vertices,x ; x value
         inx
         phx
         read_polygon_byte
-        sta ptemp
-        multiply_zoom ptemp
+        jsr multiply_zoom
         plx
         sta polygon_info+polygon_data::vertices,x ; y value
         inx
         cpx counter
         jne loop
-
-    scale_x16 polygon_info+polygon_data::center_x
 
     jsr draw_polygon
     rts
@@ -253,29 +193,25 @@ no_sign_extension_2:
 ; Preliminaries must be set
 ; ---------------------------------------------------------------
 .proc parse_polygon_group
-    nx = work+4
-    ny = work+6
-    num_children = work+8
-    off = work+9
-    zoom = work+23
+    cx = nx
+    cy = ny
 
     stz nx+1
     stz ny+1
 
-    lda polygon_info+polygon_data::zoom ; todo: this isn't right, meant to use zoom properly
+    lda polygon_info+polygon_data::zoom
     sta zoom
-    ; lsr_a 6
-    ; sta polygon_info+polygon_data::zoom 
 
-    lda polygon_info+polygon_data::center_x
     read_polygon_byte
+    jsr multiply_zoom
     sta nx
-    multiply_zoom nx    ; nx = x * zoom
+    stx nx+1
     sub16_addr polygon_info+polygon_data::center_x, nx ; x_val = x_val - nx
 
     read_polygon_byte
+    jsr multiply_zoom
     sta ny
-    multiply_zoom ny    ; ny = ny * zoom
+    stx ny+1
     sub16_addr polygon_info+polygon_data::center_y, ny ; y_val = y_val - ny
 
     read_polygon_byte
@@ -289,26 +225,31 @@ no_sign_extension_2:
         read_polygon_byte
         sta off             ; off = read_word
 
-        stz nx+1
+        stz cx+1
         read_polygon_byte
-        sta nx
-        multiply_zoom nx
+        jsr multiply_zoom
+        sta cx
+        stx cx+1
 
-        stz ny+1
+        stz cy+1
         read_polygon_byte
-        sta ny
-        multiply_zoom ny
+        jsr multiply_zoom
+        sta cy
+        stx cy+1
 
         lda polygon_info+polygon_data::center_x
         pha
+        lda polygon_info+polygon_data::center_x+1
+        pha
         lda polygon_info+polygon_data::center_y
         pha
-        add16_addr polygon_info+polygon_data::center_x, nx
-        add16_addr polygon_info+polygon_data::center_y, ny
+        lda polygon_info+polygon_data::center_y+1
+        pha
+        add16_addr polygon_info+polygon_data::center_x, cx
+        add16_addr polygon_info+polygon_data::center_y, cy
 
         lda off+1
-        bit #$80
-        beq skip_color
+        bpl skip_color  ; $8000 is the color flag
         read_polygon_byte
         and #$7F
         sta polygon_info+polygon_data::color
@@ -340,7 +281,11 @@ no_sign_extension_2:
         sta poly_ptr
 
         pla
+        sta polygon_info+polygon_data::center_y+1
+        pla
         sta polygon_info+polygon_data::center_y
+        pla
+        sta polygon_info+polygon_data::center_x+1
         pla
         sta polygon_info+polygon_data::center_x
         plx
@@ -356,14 +301,14 @@ no_sign_extension_2:
 ; ---------------------------------------------------------------
 .proc draw_polygon
     ; draw_polygon uses draw_page
-    topleftX = work+12
-    topleftY = work+14
-    i = work+15
-    j = work+16
-    num_vertices = work+17
-    x_val = work+18
-    y_val = work+20
-    y_index = work+21
+    topleftX = work
+    topleftY = work+2
+    current_index = work+4
+    prev_index = work+5
+    num_vertices = work+6
+    x_val = work+7
+    y_val = work+9
+    y_index = work+11
 
     ; *** topleftX = center_x - width/2
     lda polygon_info+polygon_data::width ; width is already scaled
@@ -384,6 +329,9 @@ no_sign_extension_2:
     lda polygon_info+polygon_data::center_y
     sbc topleftY
     sta topleftY    ; topleftXY = y_val - height/2
+    lda polygon_info+polygon_data::center_y+1
+    sbc #0
+    sta topleftY+1
 
     ; *** if num vertices is 4 and height < 2
     lda polygon_info+polygon_data::num_vertices
@@ -414,82 +362,97 @@ no_sign_extension_2:
         ; *** rasterize edges using bresenham's line algorithm
         lda polygon_info+polygon_data::num_vertices
         dec
-        sta j
-        stz i
-        raster_loop:
-            ; while i < num_vertices
-            lda i
+        asl
+        sta prev_index ; prev_index = num_vertices - 1 * 2; start at the last vertex
+        stz current_index ; current_index = 0
+        raster_loop:    ; *** vertices are in clockwise order, starting top-right
+            ; while current_index < num_vertices
+            lda current_index
+            lsr
             cmp polygon_info+polygon_data::num_vertices
             beq done_raster
 
-            lda j
-            asl
-            tay
+            ldy prev_index
             lda polygon_info+polygon_data::vertices,y
-            clc
-            adc topleftX
             sta x1
-            iny
-            lda polygon_info+polygon_data::vertices,y
-            clc
-            adc topleftY
+            lda polygon_info+polygon_data::vertices+1,y
             sta y1
 
-            lda i
-            asl
-            tay
+            ldy current_index
             lda polygon_info+polygon_data::vertices,y
-            clc
-            adc topleftX
             sta x2
-            iny
-            lda polygon_info+polygon_data::vertices,y
-            clc
-            adc topleftY
+            lda polygon_info+polygon_data::vertices+1,y
             sta y2
 
             jsr rasterize_edge
-            lda i
-            sta j
-            inc i
+
+            lda current_index
+            sta prev_index
+            inc current_index
+            inc current_index
             bra raster_loop
 
         done_raster:
         ; *** draw horizontal lines between min_x and max_x for each y
-        ldy #0   ; todo: this could start at first y coord
-        draw_loop:
+        ldy #0 ; todo: start at min y and finish at max y
+        draw_loop:        
             lda edge_table_left,y
             sta min_x
+            stz min_x+1
             lda edge_table_right,y
             sta max_x
+            stz max_x+1
 
             ; if min_x = $FF then skip
             lda min_x
             cmp #$FF
-            beq skip
+            jeq skip
             @continue:
 
-            lda min_x
-            sta line_info+line_data::x1 ; todo: can be optimised above
-            lda max_x
-            sta line_info+line_data::x2
+            add16_addr min_x, topleftX
+            bpl skip_x1_zero
+            stz min_x
+            stz min_x+1
+            bra set_min_x
+            skip_x1_zero:
+            scale_x16 min_x
+            set_min_x:
+                lda min_x
+                sta line_info+line_data::x1 ; todo: can be optimised above
+
+            add16_addr max_x, topleftX
+            bpl skip_x2_zero
+            stz max_x
+            stz max_x+1
+            bra set_max_x
+            skip_x2_zero:
+            scale_x16 max_x
+            set_max_x:
+                lda max_x
+                sta line_info+line_data::x2 ; todo: can be optimised above
+
+            ora line_info+line_data::x1 ; todo: is this needed?
+            beq skip    ; if x1 = 0 and x2 = 0, skip
+
             tya
+            clc
+            adc topleftY
+            bvs skip
             sta line_info+line_data::y1
             phy
-            jsr draw_line
+            jsr draw_line ; todo: needs to take in 16 bit x and y
             ply
 
             skip:
             iny
             cpy #200
             jne draw_loop
-
     finish:
     rts
 .endproc
 
 ; ---------------------------------------------------------------
-; Initialize the edge table left with zeros, and right with $FFFF
+; Initialize the edge table left with $FF and right with $00
 ; ---------------------------------------------------------------
 .proc init_edge_table
     ldx #0
@@ -502,10 +465,9 @@ no_sign_extension_2:
         bne @loop_lo
 
     ldx #0
-    lda #0
     @loop_hi:
-        sta edge_table_right,x
-        sta edge_table_right+200,x
+        stz edge_table_right,x
+        stz edge_table_right+200,x
         inx
         cpx #200
         bne @loop_hi
@@ -516,115 +478,145 @@ no_sign_extension_2:
 ; Rasterize an edge using Bresenham's line algorithm
 ; ---------------------------------------------------------------
 .proc rasterize_edge
-    stp
-    ; *** dx = abs(x2 - x1)
-    lda x2
-    sec
-    sbc x1
-    bcs store_dx  ; If the result is positive or zero, store it directly
-    eor #$FF
-    clc
-    adc #1
-    store_dx:
+; *** TODO: I think we need to calculate before adding topleft values
+; *** add center_x and center_y before calling draw_line
+    ; Calculate dx = abs(x2 - x1)
+        sec
+        lda x2
+        sbc x1
+        bcs dx_positive
+        eor #$FF
+        inc a
+    dx_positive:
         sta dx
 
-    ; *** dy = -abs(y2 - y1)
-    lda y2
-    sec
-    sbc y1
-    bcs store_dy  ; If the result is positive or zero, store it directly
-    eor #$FF
-    clc
-    adc #1
-    store_dy:
-        sta dy
+        ; Calculate dy = abs(y2 - y1)
+        sec
+        lda y2
+        sbc y1
+        bcs dy_positive
         eor #$FF
-        clc
-        adc #1
+        inc a
+    dy_positive:
         sta dy
 
-    ; *** sx = 1 if x1 < x2, else -1
-    cmp_lt x1, x2, @x1_less_than_x2
-    lda #$FF
-    sta sx
-    bra @done_sx
-    @x1_less_than_x2:
-        lda #1
+        ; Set sx = x1 < x2 ? 1 : -1
+        cmp_lt x1, x2, x1_less_than_x2
+        lda #$FF
+        bra sx_done
+    x1_less_than_x2:
+        lda #$01
+    sx_done:
         sta sx
-    @done_sx:
 
-    ; *** sy = 1 if y1 < y2, else -1
-    cmp_lt y1, y2, @y1_less_than_y2
-    lda #$FF
-    sta sy
-    bra @done_sy
-    @y1_less_than_y2:
-        lda #1
+        ; Set sy = y1 < y2 ? 1 : -1
+        cmp_lt y1, y2, y1_less_than_y2
+        lda #$FF
+        bra sy_done
+    y1_less_than_y2:
+        lda #$01
+    sy_done:
         sta sy
-    @done_sy:
 
-    ; *** err = dx +dy
-    lda dx
-    clc
-    adc dy
-    sta err
+        stz err+1   ; start dx positive
+        ; Calculate err = (dx > dy ? dx : -dy) / 2
+        cmp_gt dx, dy, dx_greater
+        lda dy
+        lsr 
+        eor #$FF
+        inc 
+        sta err
+        beq end_err
+        lda #$FF
+        sta err+1
+        bra end_err
+    dx_greater:
+        lsr 
+        sta err
+    end_err:
 
     loop:
+        ; Call update_edge_table(x1, y1)
         jsr update_edge_table
 
-        ; if x1 == x2 and y1 == y2, break
+        ; Check if x1 == x2 and y1 == y2
         lda x1
         cmp x2
-        bne @not_done
+        bne continue
         lda y1
         cmp y2
         beq done
-        @not_done:
 
-        ; e2 = err << 1
+    continue:
+        ; e2 = err
         lda err
-        asl
         sta e2
+        lda err+1
+        sta e2+1
 
-        ; if e2 >= dy, err += dy, x1 += sx
-        cmp_ge e2, dy, e2_greater_than_dy
-        bra skip_e2_dy
-        e2_greater_than_dy:
-        lda x1
-        cmp x2
-        beq done
+    update_x:
+        ; if e2 > -dx
+        lda #$FF
+        sta ztemp+1
+        lda dx
+        eor #$FF
+        inc a        ; negate dx
+        sta ztemp
+        ; Sign-extend the negated dx to 16 bits
+        bne dx_not_zero
+        stz ztemp+1
+        dx_not_zero:
+
+        cmp_gt_16s e2, ztemp, e2_greater_than_neg_dx
+        bra update_y
+    e2_greater_than_neg_dx:
+        ; e2 > -dx, so update err and x1
         lda err
-        clc
-        adc dy
+        sec
+        sbc dy
         sta err
+        lda err+1
+        sbc #0
+        sta err+1    ; err -= dy (16-bit subtraction)
+
+        ; x1 += sx
         lda x1
         clc
         adc sx
         sta x1
-        skip_e2_dy:
 
-        ; if e2 <= dx, err += dx, y1 += sy
-        cmp_le e2, dx, e2_less_than_dx
-        bra skip_e2_dx
-        e2_less_than_dx:
-        lda y1
-        cmp y2
-        beq done
+    update_y:
+        ; if e2 < dy
+        lda e2+1
+        bmi e2_less_than_dy  ; If e2 is negative, it's definitely < dy
+        bne skip_y           ; If e2 high byte > 0, e2 >= dy
+        lda e2
+        cmp dy
+        bcs skip_y
+
+    e2_less_than_dy:
+        ; err += dx
         lda err
         clc
         adc dx
         sta err
+        lda err+1
+        adc #0
+        sta err+1
+
+        ; y1 += sy
         lda y1
         clc
         adc sy
         sta y1
-        skip_e2_dx:
 
-        bra loop
-
+    skip_y:
+        jmp loop
+        
     done:
-    rts
+        rts
 .endproc
+
 
 ; ---------------------------------------------------------------
 ; Update the edge table
@@ -637,10 +629,8 @@ no_sign_extension_2:
     lda edge_table_right,x
     sta max_x
 
-    ; if y1 >= 200 return ; todo: move up for early exit
+    ; if y1 >= 200 return
     cmp_ge y1, #200, done
-
-    ; todo: if x1 < 0 then ptemp = 0?
 
     ; if min_x > x1 then min_x = x1
     cmp_gt min_x, x1, min_x_greater_than_x1
@@ -665,5 +655,36 @@ no_sign_extension_2:
     sta edge_table_right,x
 
     done:
+    rts
+.endproc
+
+; ---------------------------------------------------------------
+; multiply value in A by zoom factor and then shifts right by 6
+; returns result in A and X
+; ---------------------------------------------------------------
+.proc multiply_zoom
+    var = ztemp
+    zoom = ztemp+1
+    result = ztemp
+    sta var
+
+    lda polygon_info+polygon_data::zoom
+    sta zoom
+
+    ; multiplication
+    mulx_addr var, zoom
+    sta result
+    stx result+1
+
+    ; divide by 64
+    ldx #6
+    @shift_loop:
+        lsr result+1
+        ror result
+        dex
+        bne @shift_loop
+    
+    lda result
+    ldx result+1
     rts
 .endproc

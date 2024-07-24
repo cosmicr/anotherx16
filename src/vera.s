@@ -20,7 +20,7 @@
 .include "polygon.inc"
 
 .segment "ZEROPAGE"
-    vtemp:              .res 4
+    vtemp:              .res 6
 
 .segment "RODATA"
     y160_lookup_lo: ; clamped at 200
@@ -183,7 +183,7 @@
     ; Set the screen resolution to 240x192  ; TODO: go back to 320x200, use 16 bit X values?
     lda #48 ; (240 / 640) * 128 = 48
     sta VERA::DISP::HSCALE
-    lda #53 ; (199 / 480) * 128 = 53
+    lda #51 ; (199 / 480) * 128 = 53
     sta VERA::DISP::VSCALE  
 
     ;jsr clear_text_screen ; clear text screen
@@ -494,18 +494,35 @@ set_addr_page_3:
 ; Draw a horizontal line
 ; uses data saved in line_info+line_data struct
 ; todo: assumes all input values are 8 bit?
+; todo: this could be optimised...
 ; ---------------------------------------------------------------
 .proc draw_line
     color_shifted = vtemp+2
     dcsel = vtemp+3
-    ; *** x2 = min(x2, 240)
-    lda line_info+line_data::x2
-    cmp #240    ; is x2 > 240?
-    bcc x2_ok   ; not greater, continue
-    bne x2_ok   ; not equal, continue
-    lda #239    ; set x2 to 239
-    sta line_info+line_data::x2
+    x2_minus_8 = vtemp+4
+    x2_minus_2 = vtemp+5
+; lda flag
+; cmp #1
+; bne @cont
+; stp
+; @cont:
+    ; *** if x1>239 then return
+    ;cmp_lt line_info+line_data::x1, #240, x1_ok
+    ;rts
+    x1_ok:
+
+    ; *** todo: if x2<0 then return (16 bit)
+
+    ; *** x2 = min(x2, 239)
+    ; cmp_lt line_info+line_data::x2, #240, x2_ok
+    ; lda #239
+    ; sta line_info+line_data::x2
     x2_ok:
+
+    ; *** if y > 191 then return
+    cmp_lt line_info+line_data::y1, #192, y_ok
+    rts
+    y_ok:
 
     lda polygon_info+polygon_data::color
     ; *** if color == $10 then use transparency
@@ -514,7 +531,7 @@ set_addr_page_3:
     jsr setup_line
     ; set the pixels
     ldx line_info+line_data::x1
-    @loop:
+    @loop:    
         lda VERA::DATA1
         ora #$88
         sta VERA::DATA0
@@ -541,16 +558,42 @@ set_addr_page_3:
     rts
 
     not_copy:
-    
     ; *** if color < $10 then draw solid line
     cmp #$0F
     jcs end
+
     ; color_shifted = color << 4
     lda polygon_info+polygon_data::color
     asl_a 4
     sta color_shifted
     ldx line_info+line_data::x1
     jsr setup_line_solid
+
+    ; *** if x2 < 8 then do a simple draw loop
+    cmp_ge line_info+line_data::x2, #8, x2_ok_solid
+    ldx line_info+line_data::x1
+    lda polygon_info+polygon_data::color
+    ora color_shifted
+    @loop_solid:
+        sta VERA::DATA0
+        inx
+        inx
+        cpx line_info+line_data::x2
+        bcc @loop_solid
+        rts
+    x2_ok_solid:
+
+    ; *** do a full line
+    ; calc x2 - 8
+    lda line_info+line_data::x2
+    sec
+    sbc #8
+    sta x2_minus_8
+    ; calc x2 - 2
+    lda line_info+line_data::x2
+    sec
+    sbc #2
+    sta x2_minus_2
 
     ; handle if first pixel is odd
     lda line_info+line_data::x1
@@ -571,30 +614,21 @@ set_addr_page_3:
 
     ; draw initial unaligned pixels
     unaligned:
+        ; while ((x1 & 7) && x1 <= x2 - 2)
         lda line_info+line_data::x1
         and #$07
         beq aligned
-        lda line_info+line_data::x2 ; todo: precalc x2 - 8 and x2 - 2
-        dec
-        dec
-        cmp line_info+line_data::x1
-        bcc aligned ; if x1 >= x2 - 8, then skip to aligned
-        beq aligned 
-            lda color_shifted
-            ora polygon_info+polygon_data::color
-            sta VERA::DATA0
-            inc line_info+line_data::x1
-            inc line_info+line_data::x1
+        cmp_gt line_info+line_data::x1, x2_minus_2, aligned
+        lda color_shifted
+        ora polygon_info+polygon_data::color
+        sta VERA::DATA0
+        inc line_info+line_data::x1
+        inc line_info+line_data::x1
         bra unaligned
     
     aligned:
         ; if x1 <= x2 - 8
-        lda line_info+line_data::x2
-        sec
-        sbc #8
-        cmp line_info+line_data::x1
-        bcc remaining
-        beq remaining
+        cmp_gt line_info+line_data::x1, x2_minus_8, remaining
         lda #(1<<2)     ; set DCSEL to 2
         sta VERA::CTRL
         lda #%01000000   ; set cache write enable
@@ -616,13 +650,7 @@ set_addr_page_3:
 
         ; while x1 <= x2 - 8
         while_loop_aligned:
-            lda line_info+line_data::x2
-            sec
-            sbc #8
-            cmp line_info+line_data::x1
-            bcc end_aligned
-            beq end_aligned
-
+            cmp_gt line_info+line_data::x1, x2_minus_8, end_aligned
             stz VERA::DATA0
             lda line_info+line_data::x1
             clc
@@ -642,13 +670,7 @@ set_addr_page_3:
 
     remaining:
         ; draw remaining unaligned pixels
-        lda line_info+line_data::x2
-        dec
-        dec
-        cmp line_info+line_data::x1
-        bcc end_pixel
-        beq end_pixel
-
+        cmp_gt line_info+line_data::x1, x2_minus_2, end_pixel
         lda color_shifted
         ora polygon_info+polygon_data::color
         sta VERA::DATA0
@@ -677,11 +699,12 @@ set_addr_page_3:
 ; helper function for draw_line
 ; ---------------------------------------------------------------
 .proc setup_line
-    lda state+engine::draw_page
-    jsr set_addr_page
     ; set control port 1
     lda #1
     sta VERA::CTRL
+    ; set the address start
+    lda state+engine::draw_page
+    jsr set_addr_page
     ; set vera address to y*160 + x1/2
     ldy line_info+line_data::y1
     lda y160_lookup_lo,y
@@ -704,8 +727,9 @@ set_addr_page_3:
     adc VERA::ADDR+1
     sta VERA::ADDR+1
     sta vtemp+1
-    lda #VERA::INC1
+    lda #0
     adc VERA::ADDR+2
+    ora #VERA::INC1
     sta VERA::ADDR+2    ; y * 160 + x1/2
     sta vtemp+2
     ; set control port 0
@@ -716,7 +740,6 @@ set_addr_page_3:
     sta VERA::ADDR+1
     lda vtemp+2
     sta VERA::ADDR+2
-    
     rts
 .endproc
 
