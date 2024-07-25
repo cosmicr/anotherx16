@@ -101,16 +101,16 @@ no_sign_extension_2:
 ; Preliminaries must be set from opcode call
 ; ---------------------------------------------------------------
 .proc parse_polygon
-
-; debug 0D50
+; debug 0404
 lda polygon_info+polygon_data::offset
-cmp #$3c
-bne @keepgoing
+cmp #$04
+bne :+
 lda polygon_info+polygon_data::offset+1
-cmp #$0d
-bne @keepgoing
+cmp #$04
+bne :+
 inc flag
-@keepgoing:
+:   ; end debug
+
     ; get the location in memory for the polygon data
     lda polygon_info+polygon_data::polygons
     sta resource
@@ -215,6 +215,7 @@ inc flag
     sub16_addr polygon_info+polygon_data::center_y, ny ; y_val = y_val - ny
 
     read_polygon_byte
+    inc
     sta num_children
 
     ldx #0
@@ -237,6 +238,7 @@ inc flag
         sta cy
         stx cy+1
 
+        ; save the coordinates
         lda polygon_info+polygon_data::center_x
         pha
         lda polygon_info+polygon_data::center_x+1
@@ -248,6 +250,8 @@ inc flag
         add16_addr polygon_info+polygon_data::center_x, cx
         add16_addr polygon_info+polygon_data::center_y, cy
 
+        lda #$FF
+        sta polygon_info+polygon_data::color
         lda off+1
         bpl skip_color  ; $8000 is the color flag
         read_polygon_byte
@@ -418,29 +422,28 @@ inc flag
             @continue:
 
             add16_addr min_x, topleftX
-            bpl skip_x1_zero
+            bit min_x+1
+            bpl x1_positive
             stz min_x
             stz min_x+1
             bra set_min_x
-            skip_x1_zero:
+            x1_positive:
             scale_x16 min_x
             set_min_x:
                 lda min_x
                 sta line_info+line_data::x1 ; todo: can be optimised above
 
             add16_addr max_x, topleftX
-            bpl skip_x2_zero
+            bit max_x+1
+            bpl x2_positive
             stz max_x
             stz max_x+1
             bra set_max_x
-            skip_x2_zero:
+            x2_positive:
             scale_x16 max_x
             set_max_x:
                 lda max_x
                 sta line_info+line_data::x2 ; todo: can be optimised above
-
-            ; ora line_info+line_data::x1 ; todo: is this needed?
-            ; beq skip    ; if x1 = 0 and x2 = 0, skip
 
             tya
             clc

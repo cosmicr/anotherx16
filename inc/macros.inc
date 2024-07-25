@@ -8,23 +8,19 @@
 .endmacro
 
 .macro inc24 addr
-.scope
   inc     addr
-  bne     @skip
+  bne     :+
   inc     addr+1
-  bne     @skip
+  bne     :+
   inc     addr+2
-@skip:
-.endscope
+:
 .endmacro
 
-.macro dec16    addr
-.scope
-  dec     addr
-  bne     @skip
-  dec     addr+1
-@skip:
-.endscope
+.macro dec16 addr
+  lda    addr
+  bne :+
+  dec    addr+1
+  : dec    addr
 .endmacro
 
 .macro asl_addr addr, count

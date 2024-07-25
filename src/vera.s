@@ -421,7 +421,6 @@ set_addr_page_3:
         iny
         cpy #16
         jne palette_loop
-
     rts
 .endproc
 
@@ -498,7 +497,7 @@ set_addr_page_3:
 ; ---------------------------------------------------------------
 .proc draw_line
     color_shifted = vtemp+2
-    dcsel = vtemp+3
+    color = vtemp+3
     x2_minus_8 = vtemp+4
     x2_minus_2 = vtemp+5
 ; lda flag
@@ -507,17 +506,18 @@ set_addr_page_3:
 ; stp
 ; @cont:
     ; *** if x1>239 then return
-    cmp_lt line_info+line_data::x1, #240, x1_ok
-    ;rts
+    ; cmp_lt line_info+line_data::x1, #240, x1_ok
+    ; rts
     x1_ok:
 
-    ; *** todo: if x2<0 then return (16 bit)
+    ; *** todo: if x2<0 then return (when using 16 bit)
+    ; *** todo: if x1<0 then x1 = 0 (when using 16 bit)
 
-    ; *** x2 = min(x2, 239)
-    cmp_lt line_info+line_data::x2, #240, x2_ok
-    lda #239
-    sta line_info+line_data::x2
-    x2_ok:
+    ; *** if x2 > 239 then x2 = 239
+    ; cmp_lt line_info+line_data::x2, #240, x2_ok
+    ; lda #239
+    ; sta line_info+line_data::x2
+    ; x2_ok:
 
     ; *** if y > 191 then return
     cmp_lt line_info+line_data::y1, #192, y_ok
@@ -532,7 +532,7 @@ set_addr_page_3:
     ; set the pixels
     ldx line_info+line_data::x1
     @loop:    
-        lda VERA::DATA1
+        lda VERA::DATA1 ; todo: this is chunky pixels, need to do single pixels
         ora #$88
         sta VERA::DATA0
         inx
@@ -549,7 +549,7 @@ set_addr_page_3:
     ; set the pixels
     ldx line_info+line_data::x1
     @loop_copy:
-        lda VERA::DATA1
+        lda VERA::DATA1 ; todo: this is chunky pixels, need to do single pixels
         sta VERA::DATA0
         inx
         inx
@@ -559,21 +559,22 @@ set_addr_page_3:
 
     not_copy:
     ; *** if color < $10 then draw solid line
-    cmp #$0F
-    jcs end
+    ; cmp #$0F
+    ; jcs end
 
     ; color_shifted = color << 4
     lda polygon_info+polygon_data::color
     asl_a 4
     sta color_shifted
+    ora polygon_info+polygon_data::color
+    sta color
     ldx line_info+line_data::x1
     jsr setup_line_solid
 
     ; *** if x2 < 8 then do a simple draw loop
     cmp_ge line_info+line_data::x2, #8, x2_ok_solid
     ldx line_info+line_data::x1
-    lda polygon_info+polygon_data::color
-    ora color_shifted
+    lda color
     @loop_solid:
         sta VERA::DATA0
         inx
@@ -584,16 +585,15 @@ set_addr_page_3:
     x2_ok_solid:
 
     ; *** do a full line
-    ; calc x2 - 8
-    lda line_info+line_data::x2
-    sec
-    sbc #8
-    sta x2_minus_8
     ; calc x2 - 2
     lda line_info+line_data::x2
     sec
     sbc #2
     sta x2_minus_2
+    ; calc x2 - 8
+    sec
+    sbc #6  ; 2 is already subtracted
+    sta x2_minus_8
 
     ; handle if first pixel is odd
     lda line_info+line_data::x1
@@ -619,8 +619,7 @@ set_addr_page_3:
         and #$07
         beq aligned
         cmp_gt line_info+line_data::x1, x2_minus_2, aligned
-        lda color_shifted
-        ora polygon_info+polygon_data::color
+        lda color
         sta VERA::DATA0
         inc line_info+line_data::x1
         inc line_info+line_data::x1
@@ -636,8 +635,7 @@ set_addr_page_3:
         lda #(6<<1)     ; set DCSEL to 6
         sta VERA::CTRL
         
-        lda color_shifted
-        ora polygon_info+polygon_data::color
+        lda color
         sta $9F29       ; FX_CACHE_L
         sta $9F2A       ; FX_CACHE_M
         sta $9F2B       ; FX_CACHE_H
@@ -671,8 +669,7 @@ set_addr_page_3:
     remaining:
         ; draw remaining unaligned pixels
         cmp_gt line_info+line_data::x1, x2_minus_2, end_pixel
-        lda color_shifted
-        ora polygon_info+polygon_data::color
+        lda color
         sta VERA::DATA0
         inc line_info+line_data::x1
         inc line_info+line_data::x1

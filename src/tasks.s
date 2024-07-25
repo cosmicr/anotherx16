@@ -513,13 +513,7 @@
             .word opcode_1A_MUSIC
     
     .segment "CODE"
-    
     asl ; table is word aligned
-    tay
-    lda jump_table,y
-    sta opcode_addr
-    lda jump_table+1,y
-    sta opcode_addr+1
-
-    jmp (opcode_addr)
+    tax
+    jmp (jump_table, x)
 .endproc

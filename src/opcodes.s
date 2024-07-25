@@ -3,6 +3,8 @@
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
 
+.macpack longbranch
+
 ; X16 and CBM includes
 .include "cx16.inc"
 .include "cbm_kernal.inc"
@@ -21,18 +23,17 @@
 ; SETI var, val
 ; ---------------------------------------------------------------
 .proc opcode_00_SETI
-    var = work
-    val = work+1
+    val = work
 
     jsr read_script_byte
-    sta var
+    pha
 
     jsr read_script_byte
     sta val+1
     jsr read_script_byte
     sta val
 
-    ldy var
+    ply
     lda val
     sta state+engine::vars,y
     lda val+1
@@ -261,6 +262,9 @@
 .proc opcode_09_DJNZ
     num = work
     addr = work+1
+
+; lda state+engine::bytecode_pos
+; stp
     jsr read_script_byte
     sta num
 
@@ -272,12 +276,9 @@
     ; Decrement the variable
     ldx num
     lda state+engine::vars,x
-    sec
-    sbc #1
-    sta state+engine::vars,x
-    lda state+engine::vars+256,x
-    sbc #0
-    sta state+engine::vars+256,x
+    bne :+
+    dec state+engine::vars+256,x
+    : dec state+engine::vars,x
 
     ; Check if the result is zero
     lda state+engine::vars,x
@@ -313,15 +314,17 @@
     tax
     lda state+engine::vars,x
     sta right_val
-    stz right_val+1
+    lda state+engine::vars+256,x
+    sta right_val+1
 
     ; Check the condition type to determine how to read the left operand
     lda cond_type
-    and #$80
-    bne @read_left_var
+    and #$80            ; if cond_type & 0x80 (mask out bit 7)
+    bne @read_left_var  ; bit 7 is set
     lda cond_type
-    and #$40
+    and #$40            ; else if cond_type & 0x40
     bne @read_left_word
+
     ; Read an 8-bit immediate value for the left operand
     jsr read_script_byte
     sta left_val
@@ -339,7 +342,7 @@
     bra @read_jump_addr
 
 @read_left_word:
-    ; Read a 16-bit immediate value for the left operand
+    ; Read a signed 16-bit immediate value for the left operand
     jsr read_script_byte
     sta left_val+1
     jsr read_script_byte
@@ -355,14 +358,9 @@
     ; Use a jump table based on the lower 3 bits of the condition type
     lda cond_type
     and #$07
-    asl
+    asl                ; multiply by 2 to get the index into the jump table
     tax
-    lda jump_table,x
-    sta jmp_table_addr
-    inx
-    lda jump_table,x
-    sta jmp_table_addr+1
-    jmp (jmp_table_addr)
+    jmp (jump_table, x)
 
 jump_table:
     .word @eq
@@ -373,79 +371,104 @@ jump_table:
     .word @le
 
 @eq:
-    ; Jump if right_var == left_value
+    ; Jump if right_val == left_val
     lda right_val
     cmp left_val
-    bne @end
+    jne @end
     lda right_val+1
     cmp left_val+1
-    bne @end
-    lda jump_addr
-    sta state+engine::bytecode_pos
-    lda jump_addr+1
-    sta state+engine::bytecode_pos+1
-    jmp @end
+    jne @end
+    jmp @do_jump
 
 @ne:
-    ; Jump if right_var != left_value
+    ; Jump if right_val != left_val
     lda right_val
     cmp left_val
-    bne @jump
+    bne @do_jump
     lda right_val+1
     cmp left_val+1
+    jeq @end
+    bra @do_jump
+
+@gt:
+    ; Jump if right_val > left_val (signed comparison)
+    lda right_val+1
+    eor left_val+1
+    bmi @gt_diff_signs
+    lda right_val+1
+    cmp left_val+1
+    bcc @end
+    bne @do_jump
+    lda right_val
+    cmp left_val
+    bcc @end
     beq @end
-@jump:
+    bra @do_jump
+@gt_diff_signs:
+    lda left_val+1
+    bmi @do_jump
+    bra @end
+
+@ge:
+    ; Jump if right_val >= left_val (signed comparison)
+    lda right_val+1
+    eor left_val+1
+    bmi @ge_diff_signs
+    lda right_val+1
+    cmp left_val+1
+    bcc @end
+    bne @do_jump
+    lda right_val
+    cmp left_val
+    bcc @end
+    bra @do_jump
+@ge_diff_signs:
+    lda left_val+1
+    bmi @do_jump
+    bra @end
+
+@lt:
+    ; Jump if right_val < left_val (signed comparison)
+    lda right_val+1
+    eor left_val+1
+    bmi @lt_diff_signs
+    lda right_val+1
+    cmp left_val+1
+    bcc @do_jump
+    bne @end
+    lda right_val
+    cmp left_val
+    bcs @end
+    bra @do_jump
+@lt_diff_signs:
+    lda right_val+1
+    bmi @do_jump
+    bra @end
+
+@le:
+    ; Jump if right_val <= left_val (signed comparison)
+    lda right_val+1
+    eor left_val+1
+    bmi @le_diff_signs
+    lda right_val+1
+    cmp left_val+1
+    bcc @do_jump
+    bne @end
+    lda right_val
+    cmp left_val
+    bcc @do_jump
+    beq @do_jump
+    bra @end
+@le_diff_signs:
+    lda right_val+1
+    bmi @do_jump
+    bra @end
+
+@do_jump:
     lda jump_addr
     sta state+engine::bytecode_pos
     lda jump_addr+1
     sta state+engine::bytecode_pos+1
-    jmp @end
-
-@gt:
-    ; Jump if right_var > left_value
-    lda right_val+1
-    cmp left_val+1
-    bcc @end
-    bne @jump
-    lda right_val
-    cmp left_val
-    bcc @end
-    beq @end
-    jmp @jump
-
-@ge:
-    ; Jump if right_var >= left_value
-    lda right_val+1
-    cmp left_val+1
-    bcc @end
-    bne @jump
-    lda right_val
-    cmp left_val
-    bcc @end
-    jmp @jump
-
-@lt:
-    ; Jump if right_var < left_value
-    lda right_val+1
-    cmp left_val+1
-    bcc @jump
-    bne @end
-    lda right_val
-    cmp left_val
-    bcs @end
-    jmp @jump
-
-@le:
-    ; Jump if right_var <= left_value
-    lda right_val+1
-    cmp left_val+1
-    bcc @jump
-    bne @end
-    lda right_val
-    cmp left_val
-    beq @jump
-    bcs @end
-    jmp @jump
 
 @end:
     rts
@@ -544,6 +567,7 @@ stp
     src = work
     dst = work+1
     vscroll = state+engine::vscroll
+
     jsr read_script_byte
     sta src
     jsr read_script_byte
@@ -592,7 +616,6 @@ stp
 ; BLITP num
 ; ---------------------------------------------------------------
 .proc opcode_10_BLITP
-stp
     wai ; this will wait at 60hz, but original game was 50hz
     ; todo: wait for refresh 50hz?
     stz state+engine::vars+$f7
@@ -748,7 +771,7 @@ stp
     beq @end
 
     plx
-    @shift_loop:
+    @shift_loop:    ; todo: this needs to be asr
         lsr state+engine::vars+256,x
         ror state+engine::vars,x
         dey
