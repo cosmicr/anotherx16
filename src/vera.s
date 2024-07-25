@@ -507,16 +507,16 @@ set_addr_page_3:
 ; stp
 ; @cont:
     ; *** if x1>239 then return
-    ;cmp_lt line_info+line_data::x1, #240, x1_ok
+    cmp_lt line_info+line_data::x1, #240, x1_ok
     ;rts
     x1_ok:
 
     ; *** todo: if x2<0 then return (16 bit)
 
     ; *** x2 = min(x2, 239)
-    ; cmp_lt line_info+line_data::x2, #240, x2_ok
-    ; lda #239
-    ; sta line_info+line_data::x2
+    cmp_lt line_info+line_data::x2, #240, x2_ok
+    lda #239
+    sta line_info+line_data::x2
     x2_ok:
 
     ; *** if y > 191 then return
@@ -776,5 +776,68 @@ set_addr_page_3:
     adc VERA::ADDR+2
     sta VERA::ADDR+2    ; y * 160 + x1/2
 
+    rts
+.endproc
+
+; ---------------------------------------------------------------
+; Draw a pixel
+; A: Colour
+; X: X position
+; Y: Y position
+; ---------------------------------------------------------------
+.proc draw_pixel
+    sta vtemp   ; save the color
+
+    ; set control port 0
+    stz VERA::CTRL
+
+    ; set the address start
+    lda state+engine::draw_page
+    jsr set_addr_page
+
+    ; set vera address to y*160
+    lda y160_lookup_lo,y
+    clc
+    adc VERA::ADDR
+    sta VERA::ADDR
+    lda y160_lookup_hi,y
+    adc VERA::ADDR+1
+    sta VERA::ADDR+1
+    lda #0
+    adc VERA::ADDR+2
+    sta VERA::ADDR+2  
+    ; now add x1/2
+    txa ; x1
+    lsr
+    clc
+    adc VERA::ADDR
+    sta VERA::ADDR
+    lda #0
+    adc VERA::ADDR+1
+    sta VERA::ADDR+1
+    lda #0
+    adc VERA::ADDR+2
+    sta VERA::ADDR+2   
+
+    txa
+    and #$01
+    beq @even
+    lda VERA::DATA0
+    and #$F0
+    ora vtemp
+    sta VERA::DATA0
+    bra @done
+
+    @even:
+    asl vtemp
+    asl vtemp
+    asl vtemp
+    asl vtemp
+    lda VERA::DATA0
+    and #$0F
+    ora vtemp
+    sta VERA::DATA0
+
+@done:
     rts
 .endproc

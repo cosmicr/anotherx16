@@ -592,7 +592,8 @@ stp
 ; BLITP num
 ; ---------------------------------------------------------------
 .proc opcode_10_BLITP
-    wai
+stp
+    wai ; this will wait at 60hz, but original game was 50hz
     ; todo: wait for refresh 50hz?
     stz state+engine::vars+$f7
     stz state+engine::vars+256+$f7

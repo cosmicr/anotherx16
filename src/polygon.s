@@ -336,26 +336,34 @@ inc flag
     ; *** if num vertices is 4 and height < 2
     lda polygon_info+polygon_data::num_vertices
     cmp #4
-    bne @start
+    jne start
     lda polygon_info+polygon_data::height
     cmp #2
-    bcs @start
+    jcs start
     ; if width is > 0, draw a line
     lda polygon_info+polygon_data::width
-    bne @line
+    bne line
     ; else draw a pixel
     ldx topleftX
     lda polygon_info+polygon_data::color
     ldy topleftY
-;    jsr plot_pixel
+    jsr draw_pixel
     jmp finish
 
-    @line:
+    line:
         ; todo: load the vertices into the line_info struct
-        ;jsr draw_line
+        lda topleftX
+        sta line_info+line_data::x1
+        add16_addr topleftX, polygon_info+polygon_data::width
+        sta line_info+line_data::x2
+        scale_x16 line_info+line_data::x1
+        scale_x16 line_info+line_data::x2        
+        lda topleftY
+        sta line_info+line_data::y1
+        jsr draw_line    
         jmp finish
 
-    @start:
+    start:
         ; *** init edge_table
         jsr init_edge_table
 
@@ -431,13 +439,12 @@ inc flag
                 lda max_x
                 sta line_info+line_data::x2 ; todo: can be optimised above
 
-            ora line_info+line_data::x1 ; todo: is this needed?
-            beq skip    ; if x1 = 0 and x2 = 0, skip
+            ; ora line_info+line_data::x1 ; todo: is this needed?
+            ; beq skip    ; if x1 = 0 and x2 = 0, skip
 
             tya
             clc
             adc topleftY
-            bvs skip
             sta line_info+line_data::y1
             phy
             jsr draw_line ; todo: needs to take in 16 bit x and y
