@@ -19,6 +19,8 @@
 .include "resource.inc"
 .include "opcodes.inc"
 .include "polygon.inc"
+.include "debug.inc"
+.include "input.inc"
 
 .segment "ZEROPAGE"
     opcode:     .res 1
@@ -100,12 +102,12 @@
         sta_task task::next_pc
         sta_task task::next_pc+1    ; next_pc = $FFFF
 
-        ; if pc is $FFFD then reset task::pc to $FFFF
+        ; if pc is $FFFE then reset task::pc to $FFFF
         lda pc+1
         cmp #$FF
         bne @not_end
         lda pc
-        cmp #$FD
+        cmp #$FE
         bne @not_end
 
         lda #$FF
@@ -208,7 +210,7 @@
         jsr update_tasks
 
     ; TODO: *** UPDATE INPUT ***
-    ; jsr update_input
+    jsr update_input
 
     ; **Execute tasks
     jsr execute_tasks
@@ -228,7 +230,7 @@
     ; bytecode resource is 2nd value in parts table
     lda state+engine::part
     asl
-    asl ; multiply by 4
+    asl ; multiply by 4 ; todo: cache this value for speed
     inc
     tay
     lda part_resources,y    ; get the res number
@@ -283,14 +285,18 @@
         jsr read_script_byte
         sta opcode
 
+        ; debug output
+        jsr last_opcode
+        
+        lda opcode
         bit #$80
-        beq @test_draw_poly
+        beq @test_draw_poly ; not set
         jsr opcode_draw_poly_background
         bra while_loop
 
         @test_draw_poly:
         bit #$40
-        beq @execute_opcode
+        beq @execute_opcode ; not set
         jsr opcode_draw_poly_sprite
         bra while_loop
 

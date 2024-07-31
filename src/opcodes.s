@@ -26,7 +26,7 @@
     val = work
 
     jsr read_script_byte
-    pha
+    pha ; var
 
     jsr read_script_byte
     sta val+1
@@ -50,8 +50,8 @@
     pha
 
     jsr read_script_byte
-    tay
-    plx
+    tay ; src
+    plx ; dst
     
     lda state+engine::vars,y
     sta state+engine::vars,x
@@ -179,14 +179,16 @@
     current_task = work
     stack_pos = work+2
 
+    ; get current task number
     stz current_task+1
     lda state+engine::current_task
     sta current_task
 
+    ; get the offset into the tasks array for the current task
     mulx16 current_task, .sizeof(task)
     add16 current_task, tasks ; current_task now points to tasks[current_task]
 
-    ; tasks[current_task].stack_pos--;
+    ; current_task.stack_pos--;
     ldy #task::stack_pos
     lda (current_task),y
     dec
@@ -223,9 +225,11 @@
 ; ---------------------------------------------------------------
 .proc opcode_07_JMP
     jsr read_script_byte
-    sta state+engine::bytecode_pos+1
+    pha
     jsr read_script_byte
     sta state+engine::bytecode_pos
+    pla
+    sta state+engine::bytecode_pos+1
     rts
 .endproc
 
@@ -262,9 +266,11 @@
 .proc opcode_09_DJNZ
     num = work
     addr = work+1
-
-; lda state+engine::bytecode_pos
+; lda flag
+; cmp #1
+; bne @cont
 ; stp
+; @cont:
     jsr read_script_byte
     sta num
 
@@ -276,14 +282,14 @@
     ; Decrement the variable
     ldx num
     lda state+engine::vars,x
-    bne :+
-    dec state+engine::vars+256,x
+    bne :+ ; decrement if not zero
+    dec state+engine::vars+256,x ; otherwise decrement both
     : dec state+engine::vars,x
 
     ; Check if the result is zero
     lda state+engine::vars,x
     ora state+engine::vars+256,x
-    beq @end
+    beq @end ; result is zero
 
     ; If not zero, jump to the specified address
     lda addr
@@ -303,7 +309,6 @@
     right_val = work+1
     left_val = work+3
     jump_addr = work+5
-    jmp_table_addr = work+7
 
     ; Read the condition type from the script
     jsr read_script_byte
@@ -384,11 +389,11 @@ jump_table:
     ; Jump if right_val != left_val
     lda right_val
     cmp left_val
-    bne @do_jump
+    jne @do_jump
     lda right_val+1
     cmp left_val+1
-    jeq @end
-    bra @do_jump
+    jne @do_jump
+    bra @end
 
 @gt:
     ; Jump if right_val > left_val (signed comparison)
@@ -492,7 +497,7 @@ jump_table:
     end = work+1
     state = work+2
     task_ptr = work+3
-stp
+brk
     jsr read_script_byte
     sta start
     jsr read_script_byte
@@ -604,7 +609,6 @@ stp
     rts
 
     @copy_vscroll:
-    stp
     brk
 
     
@@ -656,6 +660,8 @@ stp
     sta y_pos
     jsr read_script_byte
     sta color
+
+    ; load the text into the text pointer
 
     ; TODO: Implement display_text function
     ; jsr display_text

@@ -14,6 +14,8 @@
 .include "engine.inc"
 .include "tasks.inc"
 .include "macros.inc"
+.include "text.inc"
+.include "debug.inc"
 
 .segment "STARTUP"
 
@@ -33,7 +35,11 @@
 ; ---------------------------------------------------------------
 ; Main program
 ; ---------------------------------------------------------------
+    ; debugging stuff
     stz flag
+    lda #1
+    stz debug_mode
+
     jsr init_vera
     jsr init_resources
     jsr init_engine
@@ -42,7 +48,7 @@
     ; GAME LOOP
     @loop:
         jsr run_tasks
-        jmp @loop
+        bra @loop
     
 exit:
     jsr RESTOR

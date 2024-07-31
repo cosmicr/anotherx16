@@ -3,6 +3,7 @@
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
 
+.globalzp opcode
 .global run_tasks, read_script_byte
 
 MAX_TASKS = 64

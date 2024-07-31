@@ -101,15 +101,15 @@ no_sign_extension_2:
 ; Preliminaries must be set from opcode call
 ; ---------------------------------------------------------------
 .proc parse_polygon
-; debug 0404
-lda polygon_info+polygon_data::offset
-cmp #$04
-bne :+
-lda polygon_info+polygon_data::offset+1
-cmp #$04
-bne :+
-inc flag
-:   ; end debug
+; ; debug 0404
+; lda polygon_info+polygon_data::offset
+; cmp #$04
+; bne :+
+; lda polygon_info+polygon_data::offset+1
+; cmp #$04
+; bne :+
+; inc flag
+; :   ; end debug
 
     ; get the location in memory for the polygon data
     lda polygon_info+polygon_data::polygons
@@ -355,7 +355,6 @@ inc flag
     jmp finish
 
     line:
-        ; todo: load the vertices into the line_info struct
         lda topleftX
         sta line_info+line_data::x1
         add16_addr topleftX, polygon_info+polygon_data::width

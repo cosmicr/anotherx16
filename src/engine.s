@@ -13,6 +13,7 @@
 .include "vera.inc"
 .include "tasks.inc"
 .include "resource.inc"
+.include "text.inc"
 
 .segment "DATA"
     state:   .res .sizeof(engine)
@@ -102,6 +103,8 @@
     stz state+engine::part
     lda #1
     sta state+engine::next_part
+
+    stz text_length ; clear text buffer length
 
     rts
 .endproc

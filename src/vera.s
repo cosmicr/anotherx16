@@ -177,7 +177,7 @@
     sta VERA::L1::CONFIG
 
     ; Enable layer 0 (only) put CX16 into VGA mode
-    lda #(VERA::DISP::ENABLE::LAYER0 | VERA::DISP::MODE::VGA)
+    lda #(VERA::DISP::ENABLE::LAYER0 | VERA::DISP::ENABLE::LAYER1 | VERA::DISP::MODE::VGA)
     sta VERA::DISP::VIDEO
 
     ; Set the screen resolution to 240x192  ; TODO: go back to 320x200, use 16 bit X values?
@@ -186,7 +186,7 @@
     lda #51 ; (199 / 480) * 128 = 53
     sta VERA::DISP::VSCALE  
 
-    ;jsr clear_text_screen ; clear text screen
+    jsr clear_text_screen ; clear text screen
 
     rts
 .endproc
