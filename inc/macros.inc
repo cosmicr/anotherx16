@@ -158,6 +158,13 @@ start:
   .endrepeat
 .endmacro
 
+.macro lsr16_addr addr, count
+  .repeat count
+    lsr addr+1
+    ror addr
+  .endrepeat
+.endmacro
+
 .macro asl32_addr addr, count
   .repeat count
     asl addr
@@ -231,6 +238,55 @@ start:
   cmp val_M
   bne true_label
 .endmacro
+
+; --------------------------------------------------------------------------------------------
+; 16-bit comparisons
+; --------------------------------------------------------------------------------------------
+.macro cmp16_gt val_A, val_M, true_label
+  lda val_A+1
+  cmp val_M+1
+  bcc @cmp_gt_false
+  bne true_label
+  lda val_A
+  cmp val_M
+  bcc @cmp_gt_false
+  bne true_label
+@cmp_gt_false:
+.endmacro
+
+.macro cmp16_ge val_A, val_M, true_label
+  lda val_A+1
+  cmp val_M+1
+  bcc @cmp_ge_false
+  bne true_label
+  lda val_A
+  cmp val_M
+  bcc @cmp_ge_false
+  jmp true_label
+@cmp_ge_false:
+.endmacro
+
+.macro cmp16_lt val_A, val_M, true_label
+  lda val_A+1
+  cmp val_M+1
+  bcc true_label
+  bne @cmp_lt_false
+  lda val_A
+  cmp val_M
+  bcc true_label
+@cmp_lt_false:
+.endmacro
+
+.macro cmp16_eq val_A, val_M, true_label
+  lda val_A+1
+  cmp val_M+1
+  bne @cmp_eq_false
+  lda val_A
+  cmp val_M
+  beq true_label
+@cmp_eq_false:
+.endmacro
+
 
 ; --------------------------------------------------------------------------------------------
 ; 16-bit signed comparison

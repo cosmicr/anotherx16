@@ -21,7 +21,6 @@
 
 .segment "ZEROPAGE"
     poly_ptr:       .res 2
-    ptemp:          .res 2
     x1:             .res 2
     y1:             .res 1
     x2:             .res 2
@@ -36,24 +35,29 @@
     min_x:          .res 2
     max_x:          .res 2
     setup:          .res 1
-    counter:        .res 1
     resource:       .res 2
     nx:             .res 2
     ny:             .res 2
     num_children:   .res 1
-    off:            .res 2
-    zoom:           .res 1
+    topleftX:       .res 2
+    topleftY:       .res 2
+    current_index:  .res 1
+    prev_index:     .res 1
+    num_vertices:   .res 1
+    pbank:          .res 1
+    line_info:      .tag line_data
 
 .segment "DATA"
     polygon_info:       .tag polygon_data
     edge_table_left:    .res (2*200)
     edge_table_right:   .res (2*200)
-    line_info:          .tag line_data
+    counter:            .res 1
+    off:                .res 2
 
 .segment "CODE"
 
 .macro read_polygon_byte
-    ldy #RESOURCE_BANK_START
+    ldy pbank
     lda poly_ptr
     ldx poly_ptr+1
     jsr read_byte
@@ -101,15 +105,16 @@ no_sign_extension_2:
 ; Preliminaries must be set from opcode call
 ; ---------------------------------------------------------------
 .proc parse_polygon
-; ; debug 0404
-; lda polygon_info+polygon_data::offset
-; cmp #$04
-; bne :+
-; lda polygon_info+polygon_data::offset+1
-; cmp #$04
-; bne :+
-; inc flag
-; :   ; end debug
+; debug C942
+stz flag
+lda polygon_info+polygon_data::offset
+cmp #$7e
+bne :+
+lda polygon_info+polygon_data::offset+1
+cmp #$0f
+bne :+
+inc flag
+:   ; end debug
 
     ; get the location in memory for the polygon data
     lda polygon_info+polygon_data::polygons
@@ -122,8 +127,16 @@ no_sign_extension_2:
     iny
     lda (resource),y
     sta poly_ptr+1
-
+    
+    lda #$1B
+    sta pbank
     add16_addr poly_ptr, polygon_info+polygon_data::offset     ; poly_ptr = poly_ptr + offset
+    bcc :+
+    clc
+    lda pbank
+    adc #8
+    sta pbank
+    :   ; we didn't cross over a page boundary
 
     read_polygon_byte
     sta setup
@@ -135,8 +148,7 @@ no_sign_extension_2:
 
     ; *** single polygon ***
     lda polygon_info+polygon_data::color
-    bit #$80
-    beq @skip_color
+    bpl @skip_color ; bit #$80
     lda setup
     and #$3F
     sta polygon_info+polygon_data::color       ; color = setup & $3F
@@ -155,9 +167,9 @@ no_sign_extension_2:
     sta polygon_info+polygon_data::num_vertices
     asl
     sta counter    ; counter = num_vertices * 2
-
+    
     ldx #0
-    loop:
+    vertex_loop:
         phx
         read_polygon_byte
         jsr multiply_zoom
@@ -171,7 +183,7 @@ no_sign_extension_2:
         sta polygon_info+polygon_data::vertices,x ; y value
         inx
         cpx counter
-        jne loop
+        jne vertex_loop
 
     jsr draw_polygon
     rts
@@ -199,19 +211,19 @@ no_sign_extension_2:
     stz nx+1
     stz ny+1
 
-    lda polygon_info+polygon_data::zoom
-    sta zoom
+    ; lda polygon_info+polygon_data::zoom
+    ; sta zoom
 
     read_polygon_byte
     jsr multiply_zoom
     sta nx
-    stx nx+1
+    stz nx+1
     sub16_addr polygon_info+polygon_data::center_x, nx ; x_val = x_val - nx
 
     read_polygon_byte
     jsr multiply_zoom
     sta ny
-    stx ny+1
+    stz ny+1
     sub16_addr polygon_info+polygon_data::center_y, ny ; y_val = y_val - ny
 
     read_polygon_byte
@@ -219,7 +231,7 @@ no_sign_extension_2:
     sta num_children
 
     ldx #0
-    loop:
+    child_loop:
         phx
         read_polygon_byte
         sta off+1
@@ -238,7 +250,15 @@ no_sign_extension_2:
         sta cy
         stx cy+1
 
-        ; save the coordinates
+        ; save the polygon_data
+        lda num_children
+        pha
+        lda polygon_info+polygon_data::width
+        pha
+        lda polygon_info+polygon_data::height
+        pha        
+        lda polygon_info+polygon_data::zoom
+        pha
         lda polygon_info+polygon_data::center_x
         pha
         lda polygon_info+polygon_data::center_x+1
@@ -267,16 +287,25 @@ no_sign_extension_2:
         lda off+1
         sta polygon_info+polygon_data::offset+1
 
-        lda zoom
-        sta polygon_info+polygon_data::zoom
+        ; lda zoom
+        ; sta polygon_info+polygon_data::zoom
 
         ; save the current offset
         lda poly_ptr
         pha
         lda poly_ptr+1
         pha
-
+        lda pbank
+        pha
+; lda flag
+; cmp #1
+; bne @cont
+; stp
+; @cont:
         jsr parse_polygon
+
+        pla
+        sta pbank
 
         ; restore the offset
         pla
@@ -292,10 +321,18 @@ no_sign_extension_2:
         sta polygon_info+polygon_data::center_x+1
         pla
         sta polygon_info+polygon_data::center_x
+        pla 
+        sta polygon_info+polygon_data::zoom
+        pla
+        sta polygon_info+polygon_data::height
+        pla
+        sta polygon_info+polygon_data::width
+        pla
+        sta num_children
         plx
         inx
         cpx num_children
-        jne loop
+        jne child_loop
     rts
 .endproc
 
@@ -304,16 +341,6 @@ no_sign_extension_2:
 ; Prerequisites: polygon data is set up
 ; ---------------------------------------------------------------
 .proc draw_polygon
-    ; draw_polygon uses draw_page
-    topleftX = work
-    topleftY = work+2
-    current_index = work+4
-    prev_index = work+5
-    num_vertices = work+6
-    x_val = work+7
-    y_val = work+9
-    y_index = work+11
-
     ; *** topleftX = center_x - width/2
     lda polygon_info+polygon_data::width ; width is already scaled
     lsr
@@ -321,10 +348,10 @@ no_sign_extension_2:
     sec
     lda polygon_info+polygon_data::center_x
     sbc topleftX
-    sta topleftX    ; topleftX = center_x - width/2
+    sta topleftX    
     lda polygon_info+polygon_data::center_x+1
     sbc #0
-    sta topleftX+1
+    sta topleftX+1  ; topleftX = center_x - width/2
     ; *** topleftY = y_val - height/2
     lda polygon_info+polygon_data::height
     lsr
@@ -332,10 +359,10 @@ no_sign_extension_2:
     sec
     lda polygon_info+polygon_data::center_y
     sbc topleftY
-    sta topleftY    ; topleftXY = y_val - height/2
+    sta topleftY
     lda polygon_info+polygon_data::center_y+1
     sbc #0
-    sta topleftY+1
+    sta topleftY+1  ; topleftXY = y_val - height/2
 
     ; *** if num vertices is 4 and height < 2
     lda polygon_info+polygon_data::num_vertices
@@ -344,25 +371,26 @@ no_sign_extension_2:
     lda polygon_info+polygon_data::height
     cmp #2
     jcs start
+    lda topleftX
+    sta line_info+line_data::x1
+    lda topleftX+1
+    sta line_info+line_data::x1+1
+    lda topleftX
+    clc
+    adc polygon_info+polygon_data::width
+    sta line_info+line_data::x2
+    lda topleftX+1
+    adc #0
+    sta line_info+line_data::x2+1
+    lda topleftY
+    sta line_info+line_data::y1
     ; if width is > 0, draw a line
     lda polygon_info+polygon_data::width
     bne line
     ; else draw a pixel
-    ldx topleftX
-    lda polygon_info+polygon_data::color
-    ldy topleftY
     jsr draw_pixel
     jmp finish
-
     line:
-        lda topleftX
-        sta line_info+line_data::x1
-        add16_addr topleftX, polygon_info+polygon_data::width
-        sta line_info+line_data::x2
-        scale_x16 line_info+line_data::x1
-        scale_x16 line_info+line_data::x2        
-        lda topleftY
-        sta line_info+line_data::y1
         jsr draw_line    
         jmp finish
 
@@ -421,28 +449,31 @@ no_sign_extension_2:
             @continue:
 
             add16_addr min_x, topleftX
-            bit min_x+1
             bpl x1_positive
             stz min_x
             stz min_x+1
             bra set_min_x
             x1_positive:
-            scale_x16 min_x
+            ;scale_x16 min_x
             set_min_x:
                 lda min_x
                 sta line_info+line_data::x1 ; todo: can be optimised above
+                lda min_x+1
+                sta line_info+line_data::x1+1
 
             add16_addr max_x, topleftX
-            bit max_x+1
             bpl x2_positive
             stz max_x
             stz max_x+1
             bra set_max_x
             x2_positive:
-            scale_x16 max_x
+            ;scale_x16 max_x
             set_max_x:
+        
                 lda max_x
                 sta line_info+line_data::x2 ; todo: can be optimised above
+                lda max_x+1
+                sta line_info+line_data::x2+1
 
             tya
             clc
@@ -454,7 +485,7 @@ no_sign_extension_2:
 
             skip:
             iny
-            cpy #200
+            cpy #(SCREEN_HEIGHT)
             jne draw_loop
     finish:
     rts
@@ -668,31 +699,47 @@ no_sign_extension_2:
 .endproc
 
 ; ---------------------------------------------------------------
-; multiply value in A by zoom factor and then shifts right by 6
-; returns result in A and X
+; multiply signed value in A by zoom factor and then shifts right by 6
+; returns signed result in A (low byte) and X (high byte)
 ; ---------------------------------------------------------------
 .proc multiply_zoom
     var = ztemp
     zoom = ztemp+1
     result = ztemp
     sta var
-
     lda polygon_info+polygon_data::zoom
     sta zoom
 
-    ; multiplication
+    ; Multiplication
     mulx_addr var, zoom
     sta result
     stx result+1
 
-    ; divide by 64
+    ; Check if the result is negative
+    lda result+1
+    bpl @positive_result
+
+    ; Negative result, adjust for signed division
+    ; Add 63 before shifting to round towards negative infinity
+    clc
+    lda result
+    adc #63
+    sta result
+    lda result+1
+    adc #0
+    sta result+1
+
+@positive_result:
+    ; Divide by 64 (shift right by 6)
     ldx #6
-    @shift_loop:
-        lsr result+1
-        ror result
-        dex
-        bne @shift_loop
-    
+@shift_loop:
+    cmp #$80        ; Check if the sign bit will be affected
+    ror result+1
+    ror result
+    dex
+    bne @shift_loop
+
+@done:
     lda result
     ldx result+1
     rts

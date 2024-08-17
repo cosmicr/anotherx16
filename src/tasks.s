@@ -386,10 +386,10 @@
     jmp (x_jump_table,x)
 
     x_jump_table:
-        .word x_16bit_immediate
-        .word x_16bit_immediate
-        .word x_from_var
-        .word x_8bit_plus_256
+        .word x_16bit_immediate ; 00000000 x = 16-bit BE num
+        .word x_from_var        ; 00010000 x = from var
+        .word x_8_bit           ; 00100000 x = 8-bit
+        .word x_8bit_plus_256   ; 00110000 x = 8-bit+256
 
     x_16bit_immediate:
         jsr read_script_byte
@@ -405,6 +405,12 @@
         sta polygon_info+polygon_data::center_x
         lda state+engine::vars+256,x
         sta polygon_info+polygon_data::center_x+1
+        jmp get_y
+    
+    x_8_bit:
+        jsr read_script_byte
+        sta polygon_info+polygon_data::center_x
+        stz polygon_info+polygon_data::center_x+1
         jmp get_y
 
     x_8bit_plus_256:

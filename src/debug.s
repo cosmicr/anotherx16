@@ -45,12 +45,12 @@
     lda state+engine::bytecode_pos
     jsr hex2text
 
-    ; ; is bytecode_pos $0393
+    ; is bytecode_pos $267b - issue with polygon group C942
     ; lda state+engine::bytecode_pos
-    ; cmp #$c6
+    ; cmp #$7b
     ; bne :+
     ; lda state+engine::bytecode_pos+1
-    ; cmp #$24
+    ; cmp #$26
     ; bne :+
     ; lda #1
     ; sta debug_step

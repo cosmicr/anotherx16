@@ -626,6 +626,7 @@ brk
     stz state+engine::vars+256+$f7
     jsr read_script_byte
     jsr update_display
+
     rts
 .endproc
 

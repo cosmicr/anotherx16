@@ -23,6 +23,7 @@
 
 .segment "ONCE"
 
+; todo: clean up zeropage variables
 .segment "ZEROPAGE"
     work:   .res 24
     temp:   .res 4
