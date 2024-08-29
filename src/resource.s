@@ -12,6 +12,7 @@
 ; Project includes
 .include "main.inc"
 .include "resource.inc"
+.include "macros.inc"
 
 .segment "DATA"
     next_bank:              .byte RESOURCE_BANK_START
@@ -19,7 +20,7 @@
     resource_table:         .res MAX_RESOURCES * .sizeof(resource)
     resource_filename:      .asciiz "data"  ; "bank" for compressed data
                             .res 2
-
+                            
 .segment "RODATA"
     str_error_invalid_resource_num: .asciiz "invalid resource number"
     str_error_memlist_bin:          .asciiz "error opening memlist.bin"
@@ -200,7 +201,7 @@
     sta resource_filename + 5
     stz resource_filename + 6
     pla
-    jmp get_offset
+    jra get_offset
     nibble_to_hex:
         cmp #10
         bcc @digit

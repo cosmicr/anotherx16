@@ -45,18 +45,6 @@
     lda state+engine::bytecode_pos
     jsr hex2text
 
-    ; is bytecode_pos $267b - issue with polygon group C942
-    ; lda state+engine::bytecode_pos
-    ; cmp #$7b
-    ; bne :+
-    ; lda state+engine::bytecode_pos+1
-    ; cmp #$26
-    ; bne :+
-    ; lda #1
-    ; sta debug_step
-    ; sta flag
-    ; :
-
     ; restore bytecode pos
     pla
     sta state+engine::bytecode_pos

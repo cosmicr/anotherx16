@@ -161,8 +161,8 @@
             lda pc+1
             sta state+engine::bytecode_pos+1    ; bytecode_pos = pc
 
-            lda #0
-            sta_task task::stack_pos            ; task stack_pos = 0
+            ;lda #0
+            ;sta_task task::stack_pos            ; task stack_pos = 0
 
             txa
             sta state+engine::current_task      ; current_task = x
@@ -327,17 +327,17 @@
     stz polygon_info+polygon_data::center_y+1
 
     ; x_val += y_val-199 if y_val > 199
-    cmp #199
+    cmp #(SCREEN_HEIGHT-1)
     bcc @skip
     sec
-    sbc #199        ; y_val - 199
+    sbc #(SCREEN_HEIGHT-1)        ; y_val - 199
     clc
     adc polygon_info+polygon_data::center_x
     sta polygon_info+polygon_data::center_x
     lda #0
     adc polygon_info+polygon_data::center_x+1
     sta polygon_info+polygon_data::center_x+1
-    lda #199
+    lda #(SCREEN_HEIGHT-1)
     sta polygon_info+polygon_data::center_y
     @skip:
 
@@ -386,17 +386,17 @@
     jmp (x_jump_table,x)
 
     x_jump_table:
-        .word x_16bit_immediate ; 00000000 x = 16-bit BE num
-        .word x_from_var        ; 00010000 x = from var
-        .word x_8_bit           ; 00100000 x = 8-bit
-        .word x_8bit_plus_256   ; 00110000 x = 8-bit+256
+        .word x_16bit_immediate ; 0b0000 (0x20 == 0 and 0x10 == 0)
+        .word x_from_var        ; 0b0001 (0x20 == 0 and 0x10 == 1)
+        .word x_8_bit           ; 0b0010 (0x20 == 1 and 0x10 == 0)
+        .word x_8bit_plus_256   ; 0b0011 (0x20 == 1 and 0x10 == 1)
 
     x_16bit_immediate:
         jsr read_script_byte
         sta polygon_info+polygon_data::center_x+1
         jsr read_script_byte
         sta polygon_info+polygon_data::center_x
-        jmp get_y
+        jra get_y
 
     x_from_var:
         jsr read_script_byte
@@ -405,13 +405,13 @@
         sta polygon_info+polygon_data::center_x
         lda state+engine::vars+256,x
         sta polygon_info+polygon_data::center_x+1
-        jmp get_y
+        jra get_y
     
     x_8_bit:
         jsr read_script_byte
         sta polygon_info+polygon_data::center_x
         stz polygon_info+polygon_data::center_x+1
-        jmp get_y
+        jra get_y
 
     x_8bit_plus_256:
         jsr read_script_byte
@@ -429,10 +429,10 @@
     jmp (y_jump_table,x)
 
     y_jump_table:
-        .word y_16bit_immediate
-        .word y_from_var
-        .word y_8bit_immediate
-        .word y_8bit_immediate
+        .word y_16bit_immediate     ; 0b00 (0x08 == 0 and 0x04 == 0)
+        .word y_from_var            ; 0b01 (0x08 == 0 and 0x04 == 1)
+        .word y_8bit_immediate      ; 0b10 (0x08 == 1 and 0x04 == 0)
+        .word y_8bit_immediate      ; 0b10 (0x08 == 1 and 0x04 == 1)
 
     y_16bit_immediate:
         jsr read_script_byte
@@ -443,7 +443,6 @@
 
     y_from_var:
         jsr read_script_byte
-        asl             ; Multiply by 2 to get the correct offset in vars
         tax
         lda state+engine::vars,x
         sta polygon_info+polygon_data::center_y
@@ -474,7 +473,7 @@
     bra @do_parse
     @zoom_from_var:
         jsr read_script_byte
-        asl
+        ;asl
         tax
         lda state+engine::vars,x
         sta polygon_info+polygon_data::zoom

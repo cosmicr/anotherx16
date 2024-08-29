@@ -19,24 +19,38 @@
 .include "macros.inc"
 .include "vera.inc"
 
+.segment "ZEROPAGE"
+    otemp: .res 2
+
+.segment "CODE"
+
+.macro var_to_signed
+    sec
+    lda state+engine::vars,x
+    sbc #$0
+    sta state+engine::vars,x
+    lda state+engine::vars+256,x
+    sbc #$0
+    sta state+engine::vars+256,x
+.endmacro
+
 ; ---------------------------------------------------------------
 ; SETI var, val
+; Set immediate value to a variable
 ; ---------------------------------------------------------------
 .proc opcode_00_SETI
-    val = work
-
     jsr read_script_byte
     pha ; var
 
     jsr read_script_byte
-    sta val+1
+    sta otemp+1
     jsr read_script_byte
-    sta val
+    sta otemp
 
     ply
-    lda val
+    lda otemp ; this line is redundant
     sta state+engine::vars,y
-    lda val+1
+    lda otemp+1
     sta state+engine::vars+256,y
     
     rts
@@ -44,10 +58,11 @@
 
 ; ---------------------------------------------------------------
 ; MOV dst, src
+; Copy value from src variable to dst variable
 ; ---------------------------------------------------------------
 .proc opcode_01_MOV
     jsr read_script_byte
-    pha
+    pha ; dst
 
     jsr read_script_byte
     tay ; src
@@ -63,26 +78,22 @@
 
 ; ---------------------------------------------------------------
 ; ADD dst, src
+; Add value from src variable to dst variable
 ; ---------------------------------------------------------------
 .proc opcode_02_ADD
     jsr read_script_byte
-    pha
+    pha ; dst
 
     jsr read_script_byte
-    tay
-    plx
-    
-    lda state+engine::vars,y
-    sta work
-    lda state+engine::vars+256,y
-    sta work+1
+    tay ; src
+    plx ; dst
 
-    lda state+engine::vars,x
     clc
-    adc work
+    lda state+engine::vars,y
+    adc state+engine::vars,x
     sta state+engine::vars,x
-    lda state+engine::vars+256,x
-    adc work+1
+    lda state+engine::vars+256,y
+    adc state+engine::vars+256,x
     sta state+engine::vars+256,x
 
     rts
@@ -90,23 +101,24 @@
 
 ; ---------------------------------------------------------------
 ; ADDC var, val
+; Add immediate value to a variable
 ; ---------------------------------------------------------------
 .proc opcode_03_ADDC
     jsr read_script_byte
-    pha
+    pha ; var
 
     jsr read_script_byte
-    sta work+1
+    sta otemp+1
     jsr read_script_byte
-    sta work
+    sta otemp
     
     plx
-    lda state+engine::vars,x
     clc
-    adc work
+    lda state+engine::vars,x
+    adc otemp
     sta state+engine::vars,x
     lda state+engine::vars+256,x
-    adc work+1
+    adc otemp+1
     sta state+engine::vars+256,x
 
     rts
@@ -114,31 +126,34 @@
 
 ; ---------------------------------------------------------------
 ; CALL addr
+; Call a function at the specified address
 ; ---------------------------------------------------------------
 .proc opcode_04_CALL
-    addr = work
+    addr = otemp
     current_task = work+2
     stack_pos = work+4
     stack_addr = work+6
+    ; read the address from the script
     jsr read_script_byte
     sta addr+1
     jsr read_script_byte
     sta addr
 
+    ; get current task number
     stz current_task+1
     lda state+engine::current_task
     sta current_task
 
     ; tasks[current_task].stack[tasks[current_task].stack_pos] = bytecode_pos;
-    ; get current task
+    ; get the address of the current task
     mulx16 current_task, .sizeof(task)
-    add16 current_task, tasks   ; current_task now points to tasks[current_task]
+    add16 current_task, tasks   ; current_task now points to the current task address info struct
 
-    ; get the stack_pos
+    ; get the task stack_pos
     ldy #task::stack_pos
     lda (current_task),y
     asl         ; stack is word-aligned
-    sta stack_pos
+    tay         ; save the stack_pos offset
     
     ; find the stack address
     lda current_task
@@ -151,7 +166,6 @@
 
     ; save bytecode_pos to stack + stack_pos
     lda state+engine::bytecode_pos 
-    ldy stack_pos
     sta (stack_addr),y
     lda state+engine::bytecode_pos+1
     iny
@@ -174,9 +188,10 @@
 
 ; ---------------------------------------------------------------
 ; Return from function
+; Pop the stack and return to the previous function
 ; ---------------------------------------------------------------
 .proc opcode_05_RET
-    current_task = work
+    current_task = otemp
     stack_pos = work+2
 
     ; get current task number
@@ -213,6 +228,7 @@
 
 ; ---------------------------------------------------------------
 ; Yield
+; Pause the current task and return to the main loop
 ; ---------------------------------------------------------------
 .proc opcode_06_YIELD
     lda #1
@@ -222,10 +238,11 @@
 
 ; ---------------------------------------------------------------
 ; JMP addr
+; Jump to the specified address in the script
 ; ---------------------------------------------------------------
 .proc opcode_07_JMP
     jsr read_script_byte
-    pha
+    pha ; need to save temporarily because read_script_byte uses bytecode_pos
     jsr read_script_byte
     sta state+engine::bytecode_pos
     pla
@@ -235,9 +252,10 @@
 
 ; ---------------------------------------------------------------
 ; SETVEC num, addr
+; Set a new address vector for the specified task
 ; ---------------------------------------------------------------
 .proc opcode_08_SETVEC
-    task = work
+    task = otemp
     addr = work+2
     jsr read_script_byte
     sta task
@@ -263,28 +281,27 @@
 
 ; ---------------------------------------------------------------
 ; DJNZ num, addr
+; Decrement the variable and jump if not zero
+; ---------------------------------------------------------------
 .proc opcode_09_DJNZ
-    num = work
-    addr = work+1
-; lda flag
-; cmp #1
-; bne @cont
-; stp
-; @cont:
+    addr = otemp
+    ; Read the variable num
     jsr read_script_byte
-    sta num
+    pha
 
+    ; Read the address to jump to
     jsr read_script_byte
     sta addr+1
     jsr read_script_byte
     sta addr
 
     ; Decrement the variable
-    ldx num
+    plx
     lda state+engine::vars,x
-    bne :+ ; decrement if not zero
-    dec state+engine::vars+256,x ; otherwise decrement both
-    : dec state+engine::vars,x
+    bne :+                          ; decrement if not zero
+    dec state+engine::vars+256,x    ; otherwise decrement both
+    : 
+    dec state+engine::vars,x
 
     ; Check if the result is zero
     lda state+engine::vars,x
@@ -303,9 +320,11 @@
 
 ; ---------------------------------------------------------------
 ; CJMP cond_type, b, a, addr
+; Jump based on the condition type and the values of b and a
+; cond_type: bit 0x80 = immediate, bit 0x40 = variable, bits 0x07 = condition type
 ; ---------------------------------------------------------------
 .proc opcode_0A_CJMP
-    cond_type = work
+    cond_type = otemp
     right_val = work+1
     left_val = work+3
     jump_addr = work+5
@@ -324,9 +343,8 @@
 
     ; Check the condition type to determine how to read the left operand
     lda cond_type
-    and #$80            ; if cond_type & 0x80 (mask out bit 7)
+    bit #$80            ; if cond_type & 0x80
     bne @read_left_var  ; bit 7 is set
-    lda cond_type
     and #$40            ; else if cond_type & 0x40
     bne @read_left_word
 
@@ -383,7 +401,7 @@ jump_table:
     lda right_val+1
     cmp left_val+1
     jne @end
-    jmp @do_jump
+    jra @do_jump
 
 @ne:
     ; Jump if right_val != left_val
@@ -393,7 +411,7 @@ jump_table:
     lda right_val+1
     cmp left_val+1
     jne @do_jump
-    bra @end
+    jra @end
 
 @gt:
     ; Jump if right_val > left_val (signed comparison)
@@ -497,7 +515,7 @@ jump_table:
     end = work+1
     state = work+2
     task_ptr = work+3
-brk
+stp ; untested
     jsr read_script_byte
     sta start
     jsr read_script_byte
@@ -569,7 +587,7 @@ brk
 ; COPYP src, dst
 ; ---------------------------------------------------------------
 .proc opcode_0F_COPYP
-    src = work
+    src = otemp
     dst = work+1
     vscroll = state+engine::vscroll
 
@@ -583,24 +601,25 @@ brk
     tax ; save dst for copy_page
 
     ; if (src >= 0xfe)
-    lda src
-    cmp #$fd ; carry is set when src <= #$fd
-    bcc @vscroll_copy
+    cmp_lt src, #$fe, @vscroll_copy
     jsr get_page
-    jsr copy_page
+    jsr copy_page   ; A = src, X = dst
     rts
 
     @vscroll_copy:
     and #$80
-    bne @dont_clear_vscroll
+    bne :+          ; don't clear vscroll if bit 7 is set
     stz vscroll
-    @dont_clear_vscroll:
+    :
+
     lda src
     and #3
     jsr get_page
     sta src
+
     cmp dst
     beq @skip_copy
+
     lda vscroll
     bne @copy_vscroll
     lda src
@@ -609,7 +628,7 @@ brk
     rts
 
     @copy_vscroll:
-    brk
+stp
 
     
     @skip_copy:
@@ -621,12 +640,11 @@ brk
 ; ---------------------------------------------------------------
 .proc opcode_10_BLITP
     wai ; this will wait at 60hz, but original game was 50hz
-    ; todo: wait for refresh 50hz?
     stz state+engine::vars+$f7
     stz state+engine::vars+256+$f7
     jsr read_script_byte
     jsr update_display
-
+; stp
     rts
 .endproc
 
@@ -650,7 +668,7 @@ brk
     x_pos = work+2
     y_pos = work+3
     color = work+4
-
+    ; untested
     jsr read_script_byte
     sta num+1
     jsr read_script_byte
@@ -664,7 +682,7 @@ brk
 
     ; load the text into the text pointer
 
-    ; TODO: Implement display_text function
+    ; TODO: Implement display_text function - can't use kernel routines
     ; jsr display_text
     rts
 .endproc
@@ -674,11 +692,11 @@ brk
 ; ---------------------------------------------------------------
 .proc opcode_13_SUB
     jsr read_script_byte
-    pha
+    pha ; dst
     jsr read_script_byte
-    tay
+    tay ; src
 
-    plx
+    plx ; dst
     sec
     lda state+engine::vars,x
     sbc state+engine::vars,y
@@ -709,6 +727,10 @@ brk
     and work+1
     sta state+engine::vars+256,x
 
+    bpl positive
+    var_to_signed
+    positive:
+
     rts
 .endproc
 
@@ -730,6 +752,10 @@ brk
     lda state+engine::vars+256,x
     ora work+1
     sta state+engine::vars+256,x
+
+    bpl positive
+    var_to_signed
+    positive:
 
     rts
 .endproc
@@ -756,6 +782,10 @@ brk
         rol state+engine::vars+256,x
         dey
         bne @shift_loop
+
+    lda state+engine::vars+256,x
+    bpl @end
+    var_to_signed
 
     @end:
     rts
@@ -784,6 +814,10 @@ brk
         dey
         bne @shift_loop
 
+    lda state+engine::vars+256,x
+    bpl @end
+    var_to_signed
+
     @end:
     rts
 .endproc
@@ -792,7 +826,7 @@ brk
 ; SOUND num, freq, volume, channel
 ; ---------------------------------------------------------------
 .proc opcode_18_SOUND
-    num = work
+    num = otemp
     freq = work+2
     volume = work+3
     channel = work+4
@@ -800,10 +834,13 @@ brk
     sta num+1
     jsr read_script_byte
     sta num
+
     jsr read_script_byte
     sta freq
+
     jsr read_script_byte
     sta volume
+
     jsr read_script_byte
     sta channel
 
@@ -814,7 +851,7 @@ brk
 ; LOAD num
 ; ---------------------------------------------------------------
 .proc opcode_19_LOAD
-    num = work
+    num = otemp
     jsr read_script_byte
     sta num+1
     jsr read_script_byte

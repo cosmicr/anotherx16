@@ -1,3 +1,11 @@
+.macro  jra     Target
+        .if     .def(Target) .and ((*+2)-(Target) <= 127)
+        bra     Target
+        .else
+        jmp     Target
+        .endif
+.endmacro
+
 .macro  inc16   addr
 .scope
   inc     addr
@@ -196,10 +204,9 @@ start:
 .scope
   lda val_A
   cmp val_M
-  bcc @cmp_gt_false
-  beq @cmp_gt_false
-  bra true_label
-@cmp_gt_false:
+  bcc :+
+  bne true_label
+  :
 .endscope
 .endmacro
 
@@ -245,25 +252,23 @@ start:
 .macro cmp16_gt val_A, val_M, true_label
   lda val_A+1
   cmp val_M+1
-  bcc @cmp_gt_false
-  bne true_label
+  bcc :+          ; carry is clear when A+1 < M+1
+  bne true_label  ; if A+1 > M+1 then A > M
   lda val_A
   cmp val_M
-  bcc @cmp_gt_false
+  bcc :+
   bne true_label
-@cmp_gt_false:
+  :
 .endmacro
 
 .macro cmp16_ge val_A, val_M, true_label
   lda val_A+1
   cmp val_M+1
-  bcc @cmp_ge_false
-  bne true_label
+  bne :+      ; if high bytes are not equal, is A+1 > M+1?
   lda val_A
   cmp val_M
-  bcc @cmp_ge_false
-  jmp true_label
-@cmp_ge_false:
+  :
+  bcs true_label
 .endmacro
 
 .macro cmp16_lt val_A, val_M, true_label

@@ -14,6 +14,7 @@
 .include "tasks.inc"
 .include "resource.inc"
 .include "text.inc"
+.include "macros.inc"
 
 .segment "DATA"
     state:   .res .sizeof(engine)
@@ -21,14 +22,15 @@
 
 .segment "RODATA"
     part_resources:
+;           pal, code, poly1, poly2
         .byte $14, $15, $16, 0      ; protection screen
         .byte $17, $18, $19, 0      ; introduction
         .byte $1a, $1b, $1c, $11    ; water
         .byte $1d, $1e, $1f, $11    ; jail
-        .byte $20, $21, $22, $11    ; 'cite'
-        .byte $23, $24, $25, $11    ; 'arene'
-        .byte $26, $27, $28, $11    ; 'luxe'
-        .byte $29, $2a, $2b, $11    ; 'final'
+        .byte $20, $21, $22, $11    ; citadel
+        .byte $23, $24, $25, $11    ; arena
+        .byte $26, $27, $28, $11    ; luxury
+        .byte $29, $2a, $2b, $11    ; final
         .byte $7d, $7e, $7f, 0      ; password screen
 
 .segment "CODE"
@@ -48,25 +50,16 @@
     lda #$FF
     sta state+engine::next_palette
 
-    ; lda #$00
-    ; jsr clear_page
-
     ldx #0
-    clear_vars_low:
-        lda #0
-        sta state+engine::vars,x
+    clear_vars:
+        stz state+engine::vars,x
+        stz state+engine::vars+256,x
         inx
-        bne clear_vars_low ; loop 256 times
-    ldx #0
-    clear_vars_high:
-        lda #0
-        sta state+engine::vars+256,x
-        inx
-        bne clear_vars_high ; loop 256 times
+        bne clear_vars ; loop 256 times
 
     set_var $BC, $0010
     set_var $C6, $0080
-    set_var $F2, $6000
+    set_var $F2, 4000 ; some implementations use $6000?
     set_var $DC, 33
     set_var $E4, 20
 
@@ -79,23 +72,17 @@
     lda #<tasks
     sta work
     lda #>tasks
-    sta work+1
+    sta work+1  ; set the task list pointer
     ldx #0
     clear_task_loop:
         ldy #0
-        @inner_loop:
+        @inner_loop:    ; clear the task
             lda #0
             sta (work),y
             iny
             cpy #.sizeof(task)
             bne @inner_loop
-        clc
-        lda #.sizeof(task)
-        adc work
-        sta work
-        lda #0
-        adc work+1
-        sta work+1
+        add16 work, .sizeof(task)
         inx
         cpx #MAX_TASKS
         bne clear_task_loop
@@ -146,6 +133,7 @@
         rts
     @error:
         jsr CINT
+        brk
         rts
 .endproc
 
@@ -201,8 +189,10 @@
 .proc update_display
     cmp #$fe
     beq @set_next_palette
+
     cmp #$ff
     bne @get_page
+    ; swap display_page and buffer_page
     lda state+engine::display_page
     sta work
     lda state+engine::buffer_page
@@ -210,6 +200,7 @@
     lda work
     sta state+engine::buffer_page ; swap page pointers
     bra @set_next_palette
+    
     @get_page:
         jsr get_page
         sta state+engine::display_page
