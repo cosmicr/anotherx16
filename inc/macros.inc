@@ -180,7 +180,6 @@ start:
   sta addra
 .endmacro
 
-
 .macro sub16 addr, value
   sec
   lda addr

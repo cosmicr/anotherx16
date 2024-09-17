@@ -239,7 +239,7 @@
     cmp #2
     jcc resource_loaded ; todo: do we need to set return ptr to null?
 
-    ; save the current bank to the resource
+    ; save the current bank to the resource ; todo: probably not necessary
     ldy #resource::rank
     lda next_bank
     sta (work),y

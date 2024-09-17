@@ -7,7 +7,7 @@
 .global resource_table
 
 MAX_RESOURCES = 146
-RESOURCE_BANK_START = $1B
+RESOURCE_BANK_START = $02
 
 .struct resource
     status          .res 1

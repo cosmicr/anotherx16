@@ -367,7 +367,7 @@ set_addr_page_3:
     resource = vtemp ; todo: this is messy
 .segment "DATA"
     pal_index: .res 2
-    palette_addr: .res 2
+    palette_addr: .res 3
     bank_num: .res 1
     red: .res 1
 
@@ -390,6 +390,9 @@ set_addr_page_3:
     iny  
     lda (resource),y
     sta palette_addr+1
+    iny
+    lda (resource),y
+    sta palette_addr+2
 
     ; add 32 * palette number to the palette address
     asl16_addr pal_index, 5 ; multiply by 32
@@ -400,6 +403,9 @@ set_addr_page_3:
     lda pal_index+1
     adc palette_addr+1
     sta palette_addr+1
+    lda #$00
+    adc palette_addr+2
+    sta palette_addr+2
 
     stz VERA::CTRL ; set DATA PORT 0 and DCSEL to 0
 
@@ -418,17 +424,19 @@ set_addr_page_3:
         ldy #RESOURCE_BANK_START    ; bank_num
         lda palette_addr
         ldx palette_addr+1
+        ldy palette_addr+2
         jsr read_byte           ; red
         sta red
-        inc16 palette_addr
+        inc24 palette_addr
         ldy #RESOURCE_BANK_START
         lda palette_addr
         ldx palette_addr+1
+        ldy palette_addr+2
         jsr read_byte
         sta VERA::DATA0
         lda red
         sta VERA::DATA0
-        inc16 palette_addr
+        inc24 palette_addr
         ply
         iny
         cpy #16

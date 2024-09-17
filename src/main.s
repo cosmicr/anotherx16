@@ -28,7 +28,7 @@
 .segment "ZEROPAGE"
     work:   .res 24
     temp:   .res 4
-    read:   .res 4
+    read:   .res 6
     mtemp:  .res 1
     flag:   .res 1
 

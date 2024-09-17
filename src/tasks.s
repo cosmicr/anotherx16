@@ -255,6 +255,9 @@
     iny
     lda (table_offset),y
     sta pointer+1
+    iny
+    lda (table_offset),y
+    sta pointer+2
 
     lda pointer
     clc
@@ -263,10 +266,13 @@
     lda pointer+1
     adc state+engine::bytecode_pos+1
     sta pointer+1       ; pointer = bytecode_pos + pointer 
+    lda pointer+2
+    adc #$00
+    sta pointer+2
 
-    ldy bank_num
     lda pointer
     ldx pointer+1
+    ldy pointer+2
     jsr read_byte
 
     inc16 state+engine::bytecode_pos

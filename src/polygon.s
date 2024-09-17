@@ -20,7 +20,7 @@
 .include "polygon.inc"
 
 .segment "ZEROPAGE"
-    poly_ptr:       .res 2
+    poly_ptr:       .res 3
     x1:             .res 2
     y1:             .res 1
     x2:             .res 2
@@ -55,11 +55,11 @@
 .segment "CODE"
 
 .macro read_polygon_byte
-    ldy pbank
     lda poly_ptr
     ldx poly_ptr+1
+    ldy poly_ptr+2
     jsr read_byte
-    inc16 poly_ptr
+    inc24 poly_ptr
 .endmacro
 
 ; ---------------------------------------------------------------
@@ -90,16 +90,14 @@
     iny
     lda (resource),y
     sta poly_ptr+1
+    iny
+    lda (resource),y
+    sta poly_ptr+2
     
-    lda #RESOURCE_BANK_START
-    sta pbank
     add16_addr poly_ptr, polygon_info+polygon_data::offset     ; poly_ptr = poly_ptr + offset
-    bcc :+
-    clc
-    lda pbank
-    adc #8
-    sta pbank
-    :   ; we didn't cross over a page boundary
+    lda #$00
+    adc poly_ptr+2
+    sta poly_ptr+2
 
     read_polygon_byte
     sta setup
@@ -235,7 +233,7 @@
         read_polygon_byte
         and #$7F
         sta polygon_info+polygon_data::color
-        inc16 poly_ptr
+        inc24 poly_ptr
         
         skip_color:
         asl16_addr off, 1
@@ -250,7 +248,7 @@
         pha
         lda poly_ptr+1
         pha
-        lda pbank
+        lda poly_ptr+2
         pha
 lda flag
 beq @cont
@@ -258,10 +256,9 @@ stp
 @cont:
         jsr parse_polygon
 
-
         ; restore the offset
         pla
-        sta pbank
+        sta poly_ptr+2
         pla
         sta poly_ptr+1
         pla
