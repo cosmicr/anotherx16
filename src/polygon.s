@@ -32,8 +32,6 @@
     err:            .res 2
     e2:             .res 2
     ztemp:          .res 3
-    min_x:          .res 2
-    max_x:          .res 2
     setup:          .res 1
     resource:       .res 2
     nx:             .res 2
@@ -64,57 +62,22 @@
     inc16 poly_ptr
 .endmacro
 
-; #define Scale_Width(x) ((x >> 1) + (x >> 2))
-.macro scale_x byte
-    lda byte
-    lsr
-    sta byte
-    lsr 
-    clc
-    adc byte
-    sta byte
-.endmacro
-
-.macro scale_x16 byte
-.scope
-    ; x >> 1 (arithmetic shift right)
-    lsr byte+1
-    bcc no_sign_extension_1
-    ora #$80    ; if the high bit was 1, set the new high bit to 1
-no_sign_extension_1:
-    ror byte    ; x = x >> 1
-    ; (x >> 1) + (x >> 2)
-    lda byte
-    ldx byte+1  ; save (x >> 1) high
-    lsr byte+1  ; shift right a 2nd time
-    bcc no_sign_extension_2
-    ora #$80    ; if the high bit was 1, set the new high bit to 1
-no_sign_extension_2:
-    ror
-    clc
-    adc byte    ; add (x >> 1) low
-    sta byte
-    txa         ; restore (x >> 1) high
-    adc byte+1  ; add (x >> 1) high
-    sta byte+1
-.endscope
-.endmacro
-
 ; ---------------------------------------------------------------
 ; Parse polygon info and call draw_polygon
 ; Preliminaries must be set from opcode call
 ; ---------------------------------------------------------------
 .proc parse_polygon
 ; debug C942
-stz flag
-lda polygon_info+polygon_data::offset
-cmp #$7e
-bne :+
-lda polygon_info+polygon_data::offset+1
-cmp #$0f
-bne :+
-inc flag
-:   ; end debug
+;stz flag
+; lda polygon_info+polygon_data::offset
+; cmp #$ea
+; bne :+
+; lda polygon_info+polygon_data::offset+1
+; cmp #$88
+; bne :+
+; lda #1
+; sta flag
+; :   ; end debug
 
     ; get the location in memory for the polygon data
     lda polygon_info+polygon_data::polygons
@@ -128,7 +91,7 @@ inc flag
     lda (resource),y
     sta poly_ptr+1
     
-    lda #$1B
+    lda #RESOURCE_BANK_START
     sta pbank
     add16_addr poly_ptr, polygon_info+polygon_data::offset     ; poly_ptr = poly_ptr + offset
     bcc :+
@@ -156,11 +119,11 @@ inc flag
 
     ; read polygon width
     read_polygon_byte
-    jsr multiply_zoom
+    ;jsr multiply_zoom
     sta polygon_info+polygon_data::width
 
     read_polygon_byte
-    jsr multiply_zoom
+    ;jsr multiply_zoom
     sta polygon_info+polygon_data::height
 
     read_polygon_byte
@@ -173,21 +136,20 @@ inc flag
     vertex_loop:
         phx
         read_polygon_byte
-        jsr multiply_zoom
+        ;jsr multiply_zoom
         plx
         sta polygon_info+polygon_data::vertices,x ; x value
         inx
         phx
         read_polygon_byte
-        jsr multiply_zoom
+        ;jsr multiply_zoom
         plx
         sta polygon_info+polygon_data::vertices,x ; y value
         inx
         cpx counter
         jne vertex_loop
 
-    jsr draw_polygon
-    rts
+    jmp draw_polygon
 
     group_polygon:
     lda setup
@@ -195,7 +157,7 @@ inc flag
     cmp #2
     bne @finish
 
-    jsr parse_polygon_group
+    jmp parse_polygon_group
 
     @finish:
     rts
@@ -212,19 +174,16 @@ inc flag
     stz nx+1
     stz ny+1
 
-    ; lda polygon_info+polygon_data::zoom
-    ; sta zoom
-
     read_polygon_byte
     jsr multiply_zoom
     sta nx
-    stz nx+1
+    stx nx+1
     sub16_addr polygon_info+polygon_data::center_x, nx ; x_val = x_val - nx
 
     read_polygon_byte
     jsr multiply_zoom
     sta ny
-    stz ny+1
+    stx ny+1
     sub16_addr polygon_info+polygon_data::center_y, ny ; y_val = y_val - ny
 
     read_polygon_byte
@@ -239,13 +198,11 @@ inc flag
         read_polygon_byte
         sta off             ; off = read_word
 
-        stz cx+1
         read_polygon_byte
         jsr multiply_zoom
         sta cx
         stx cx+1
 
-        stz cy+1
         read_polygon_byte
         jsr multiply_zoom
         sta cy
@@ -288,9 +245,6 @@ inc flag
         lda off+1
         sta polygon_info+polygon_data::offset+1
 
-        ; lda zoom
-        ; sta polygon_info+polygon_data::zoom
-
         ; save the current offset
         lda poly_ptr
         pha
@@ -298,17 +252,16 @@ inc flag
         pha
         lda pbank
         pha
-; lda flag
-; cmp #1
-; bne @cont
-; stp
-; @cont:
+lda flag
+beq @cont
+stp
+@cont:
         jsr parse_polygon
 
-        pla
-        sta pbank
 
         ; restore the offset
+        pla
+        sta pbank
         pla
         sta poly_ptr+1
         pla
@@ -386,15 +339,13 @@ inc flag
     sta line_info+line_data::x2+1
     lda topleftY
     sta line_info+line_data::y1
-    ; if width is > 0, draw a line
-    lda polygon_info+polygon_data::width
-    bne line
+    ; if width is > 1, draw a line
+    cmp_ge polygon_info+polygon_data::width, #2, line
     ; else draw a pixel
-    jsr draw_pixel
-    rts
+    jmp draw_pixel
+    
     line:
-        jsr draw_line    
-        rts
+        jmp draw_line    
 
     start:
         ; *** init edge_table
@@ -434,9 +385,11 @@ inc flag
             bra raster_loop
 
         done_raster:
+        ; temp test
+
         ; *** draw horizontal lines between min_x and max_x for each y
         ldy polygon_info+polygon_data::num_vertices ; is half length of vertices
-        lda polygon_info+polygon_data::vertices+1,y
+        lda polygon_info+polygon_data::vertices+1,y ; the middle y value is max_y
         sta max_y
         ldy polygon_info+polygon_data::vertices+1 ; first y value is min_y
         tya
@@ -485,9 +438,7 @@ inc flag
     @loop:
         dex
         sta edge_table_left,x
-        sta edge_table_left+200,x   ; note: remember that each low and high byte of the value is x, x+200
         stz edge_table_right,x
-        stz edge_table_right+200,x
         bne @loop
 
     rts
@@ -496,26 +447,15 @@ inc flag
 ; ---------------------------------------------------------------
 ; Rasterize an edge using Bresenham's line algorithm
 ; ---------------------------------------------------------------
-.proc rasterize_edge
+.proc rasterize_edge_old_version
+    ; set high byte of ztemp to $FF for negative values
+    lda #$FF
+    sta ztemp+1
     ; Calculate dx = abs(x2 - x1)
-        sec
-        lda x2
-        sbc x1
-        bcs dx_positive
-        eor #$FF
-        inc a
-    dx_positive:
-        sta dx
+        abs dx, x1, x2
 
         ; Calculate dy = abs(y2 - y1)
-        sec
-        lda y2
-        sbc y1
-        bcs dy_positive
-        eor #$FF
-        inc a
-    dy_positive:
-        sta dy
+        abs dy, y1, y2
 
         ; Set sx = x1 < x2 ? 1 : -1
         cmp_lt x1, x2, x1_less_than_x2
@@ -573,14 +513,12 @@ inc flag
 
     update_x:
         ; if e2 > -dx
-        lda #$FF
-        sta ztemp+1
         lda dx
         eor #$FF
         inc        ; negate dx
         sta ztemp
         ; Sign-extend the negated dx to 16 bits
-        bne dx_not_zero
+        bne dx_not_zero ; if dx is zero, then the high byte needs to be $00
         stz ztemp+1
         dx_not_zero:
 
@@ -634,46 +572,128 @@ inc flag
         rts
 .endproc
 
+.proc rasterize_edge
+    x_inc = sx
+    y_inc = sy
+
+    ; *** check for horizontal line
+    abs dy, y1, y2
+    bne not_horizontal
+    ldx x1
+    cpx x2
+    bcc horizontal_loop
+    lda x2
+    stx x2
+    sta x1
+    horizontal_loop:
+        jsr update_edge_table
+        inc x1
+        lda x1
+        cmp x2
+        bcc horizontal_loop
+    rts
+    not_horizontal:
+
+    ; *** check for vertical line
+    abs dx, x1, x2
+    bne not_vertical
+    ldx y1
+    cpx y2
+    bcc vertical_loop
+    lda y2
+    stx y2
+    sta y1
+    vertical_loop:
+        jsr update_edge_table
+        inc y1
+        lda y1
+        cmp y2
+        bcc vertical_loop
+        beq vertical_loop
+    rts
+    not_vertical:
+
+    ; todo: there is one more optimisation here to be had
+    ;       instead of setting x_inc and y_inc, do separate code sections that use inc and dec
+    ;       probably only a fraction faster
+    ;    x_inc = 1 if x2 >= x1 else -1
+    lda #1
+    ldx x2
+    cpx x1
+    bcs :+
+    lda #$FF
+    :
+    sta x_inc
+
+    ;    y_inc = 1 if y2 >= y1 else -1
+    lda #1
+    ldx y2
+    cpx y1
+    bcs :+
+    lda #$FF
+    :
+    sta y_inc
+
+    cmp_le dx, dy, inc_y
+
+    ; *** dx loop
+    ;lda dx
+    lsr
+    sta err ; err = dx / 2
+    dx_loop:
+        jsr update_edge_table
+        add_addr x1, x_inc
+        sub_addr err, dy
+        bcs :+
+        add_addr y1, y_inc
+        add_addr err, dx
+        :
+        lda x1
+        cmp x2
+        bne dx_loop
+    rts
+    
+    ; *** dy loop
+    inc_y:
+    lda dy
+    lsr
+    sta err ; err = dy / 2
+    dy_loop:
+        jsr update_edge_table
+        add_addr y1, y_inc
+        sub_addr err, dx
+        bcs :+
+        add_addr x1, x_inc
+        add_addr err, dy
+        :
+        lda y1
+        cmp y2
+        bne dy_loop
+    rts
+.endproc
 
 ; ---------------------------------------------------------------
 ; Update the edge table
 ; ---------------------------------------------------------------
 .proc update_edge_table
-    ; set min_x and max_x to the y1 index in the edge table
     ldx y1
-    lda edge_table_left,x
-    sta min_x
-    lda edge_table_right,x
-    sta max_x
+    cpx #200
+    bcs done
 
-    ; if y1 >= 200 return
-    cmp_ge y1, #200, done
-
-    ; if min_x > x1 then min_x = x1
-    cmp_lt x1, min_x, min_x_greater_than_x1
-    bra skip_min_x
-    min_x_greater_than_x1:
-        lda x1
-        sta min_x
-    skip_min_x:
-
-    ; if max_x < x1 then max_x = x1
-    cmp_lt max_x, x1, max_x_less_than_x1
-    bra skip_max_x
-    max_x_less_than_x1:
-        lda x1
-        sta max_x
-    skip_max_x:
-
-    ; update edge_table
-    lda min_x
+    lda x1
+    cmp edge_table_left,x
+    bcs skip_min_x  ; x1 is higher or equal
     sta edge_table_left,x
-    lda max_x
+skip_min_x:
+
+    cmp edge_table_right,x
+    bcc done        ; x1 is lower
     sta edge_table_right,x
 
-    done:
+done:
     rts
 .endproc
+
 
 ; ---------------------------------------------------------------
 ; multiply value in A by zoom factor and then shifts right by 6
@@ -683,33 +703,33 @@ inc flag
     var = ztemp
     zoom = ztemp+1
     result = ztemp
-    sta var
-    stz result+1
+
+    sta var         ; Store the original value of A before zoom check
     lda polygon_info+polygon_data::zoom
     cmp #64
-    beq done
-    sta zoom
+    beq no_zoom     ; Skip multiplication if zoom factor is 64
 
     ; Multiplication
+    sta zoom        ; Store zoom factor
+    lda var         ; Load the original A value for multiplication
     mulx_addr var, zoom
     sta result
     stx result+1
 
-    ; Divide by 64 (shift right by 6)
-    ; normal loop: 24 instructions
-    ;lsr16_addr result, 6 ; unrolled loop - 12 instructions
-    ; clever shifting: 8 instructions
+    ; Divide by 64 (shift right by 6) using clever shifting
     asl result
     rol result+1
     rol result
     rol result+1
     rol result
 
-    swap result, result+1
+    lda result+1    ; Load high byte into A
+    ldx result      ; Load low byte into X
 
-done:
-    lda result
-    ldx result+1
+    rts
 
+no_zoom:
+    lda var         ; Load original value into A (no zoom applied)
+    ldx #00         ; Set high byte to 0 since no multiplication occurred
     rts
 .endproc

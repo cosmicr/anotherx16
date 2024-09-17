@@ -25,13 +25,13 @@
 .segment "CODE"
 
 .macro var_to_signed
-    sec
-    lda state+engine::vars,x
-    sbc #$0
-    sta state+engine::vars,x
-    lda state+engine::vars+256,x
-    sbc #$0
-    sta state+engine::vars+256,x
+    ; sec
+    ; lda state+engine::vars,x
+    ; sbc #$0
+    ; sta state+engine::vars,x
+    ; lda state+engine::vars+256,x
+    ; sbc #$0
+    ; sta state+engine::vars+256,x
 .endmacro
 
 ; ---------------------------------------------------------------
@@ -511,11 +511,12 @@ jump_table:
 ; CCTRL start, end, state
 ; ---------------------------------------------------------------
 .proc opcode_0C_CCTRL
-    start = work
+    start = otemp
     end = work+1
     state = work+2
     task_ptr = work+3
-stp ; untested
+; TODO: Optimise this function
+stp
     jsr read_script_byte
     sta start
     jsr read_script_byte
@@ -523,41 +524,50 @@ stp ; untested
     jsr read_script_byte
     sta state
 
+    lda start
+    sta task_ptr
+
     lda state
     cmp #2
     bne set_state
 
     kill_tasks:
-    lda start
-    sta task_ptr
     kill_loop:
+        pha
         mulx16 task_ptr, .sizeof(task)
         add16 task_ptr, tasks
         ldy #task::next_pc
-        lda #$FD
+        lda #$FE    ; -2
         sta (task_ptr),y
         iny
         lda #$FF
         sta (task_ptr),y
-        inc task_ptr
-        lda task_ptr
+        pla
+        inc
+        sta task_ptr
+        stz task_ptr+1
         cmp end
+        beq :+
         bcc kill_loop
+    :
     rts
 
     set_state:
-    lda start
-    sta task_ptr
     state_loop:
+        pha
         mulx16 task_ptr, .sizeof(task)
         add16 task_ptr, tasks
         ldy #task::next_state
         lda state
         sta (task_ptr),y
-        inc task_ptr
-        lda task_ptr
+        pla
+        inc
+        sta task_ptr
+        stz task_ptr+1
         cmp end
+        beq :+
         bcc state_loop
+    :
     rts
 .endproc
 
@@ -644,7 +654,8 @@ stp
     stz state+engine::vars+256+$f7
     jsr read_script_byte
     jsr update_display
-; stp
+    ;inc16 frame_counter
+;  stp
     rts
 .endproc
 
@@ -727,10 +738,6 @@ stp
     and work+1
     sta state+engine::vars+256,x
 
-    bpl positive
-    var_to_signed
-    positive:
-
     rts
 .endproc
 
@@ -752,10 +759,6 @@ stp
     lda state+engine::vars+256,x
     ora work+1
     sta state+engine::vars+256,x
-
-    bpl positive
-    var_to_signed
-    positive:
 
     rts
 .endproc
@@ -783,10 +786,6 @@ stp
         dey
         bne @shift_loop
 
-    lda state+engine::vars+256,x
-    bpl @end
-    var_to_signed
-
     @end:
     rts
 .endproc
@@ -809,14 +808,12 @@ stp
 
     plx
     @shift_loop:    ; todo: this needs to be asr
-        lsr state+engine::vars+256,x
+        lda state+engine::vars+256,x
+        cmp #$80
+        ror state+engine::vars+256,x
         ror state+engine::vars,x
         dey
         bne @shift_loop
-
-    lda state+engine::vars+256,x
-    bpl @end
-    var_to_signed
 
     @end:
     rts

@@ -282,6 +282,17 @@
         lda state+engine::task_paused ; if task_paused then return
         bne @exit
 
+lda state+engine::bytecode_pos+1
+cmp #$0F
+bne :+
+lda state+engine::bytecode_pos
+cmp #$c4
+bne :+
+lda #1
+sta debug_mode
+sta debug_step
+:
+
         jsr read_script_byte
         sta opcode
 
@@ -327,17 +338,18 @@
     stz polygon_info+polygon_data::center_y+1
 
     ; x_val += y_val-199 if y_val > 199
-    cmp #(SCREEN_HEIGHT-1)
+    ; note: this must by 199, because it is hardcoded in the engine
+    cmp #(199)
     bcc @skip
     sec
-    sbc #(SCREEN_HEIGHT-1)        ; y_val - 199
+    sbc #(199)        ; y_val - 199
     clc
     adc polygon_info+polygon_data::center_x
     sta polygon_info+polygon_data::center_x
     lda #0
     adc polygon_info+polygon_data::center_x+1
     sta polygon_info+polygon_data::center_x+1
-    lda #(SCREEN_HEIGHT-1)
+    lda #(199)
     sta polygon_info+polygon_data::center_y
     @skip:
 

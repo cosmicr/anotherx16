@@ -63,6 +63,9 @@
         .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
         .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
 
+    color_lookup_hi:
+        .byte $00, $10, $20, $30, $40, $50, $60, $70, $80, $90, $A0, $B0, $C0, $D0, $E0, $F0
+
 .segment "CODE"
 
 .macro calc_slope xa, ya, xb, yb, slope
@@ -286,7 +289,8 @@ set_addr_page_3:
 ; ---------------------------------------------------------------
 .proc clear_page
     sta vtemp
-    asl_a 4
+    tax
+    lda color_lookup_hi,x
     ora vtemp               ; color is duplicated for double pixels
     tax
 
@@ -439,6 +443,7 @@ set_addr_page_3:
 ; X: destination page number
 ; ---------------------------------------------------------------
 .proc copy_page
+    REPEAT_COUNT = 10
     jsr set_addr_page
 
     ; set increment to 1 byte for the page
@@ -462,10 +467,11 @@ set_addr_page_3:
     sta VERA::CTRL
 
     ; loop through the screen and copy to the page, incrementing Y every 320 X, 200 times
-    ldy #>(PAGE_SIZE / 4)
-    ldx #<(PAGE_SIZE / 4)
+    ldy #>(PAGE_SIZE / (REPEAT_COUNT * 4))
+    ldx #<(PAGE_SIZE / (REPEAT_COUNT * 4))
 
     copy_loop:
+        .repeat REPEAT_COUNT
         ; FX CTRL CACHE FILL
         lda #(1<<5)
         sta $9F29
@@ -480,12 +486,14 @@ set_addr_page_3:
         sta $9F29
 
         ; write to data1
-        stz VERA::DATA1 ; (0 bitmask)
+            stz VERA::DATA1 ; (0 bitmask)
+
+        .endrepeat
 
         dex
-        bne copy_loop
+        jne copy_loop
         dey
-        bne copy_loop
+        jne copy_loop
 
     ; turn off cache fill and write
     stz $9F29
@@ -506,25 +514,9 @@ set_addr_page_3:
     color = vtemp+3
     x2_minus_8 = vtemp+4
     x2_minus_2 = vtemp+6
-
-    ; *** if x2<0 then return
-    ;cmp_le line_info+line_data::x2+1, #1, x2_not_neg
-    ; don't need to do this because it's dont before calling
-    ; lda line_info+line_data::x2+1
-    ; bpl x2_not_neg
-    ; rts
-    ; x2_not_neg:
-
-    ; *** todo: if x1<0 then x1 = 0
-    ; cmp_le line_info+line_data::x1+1, #1, x1_not_neg
-    ; don't need to do this because it's done before calling
-    ; lda line_info+line_data::x1+1
-    ; bpl x1_not_neg
-    ; stz line_info+line_data::x1
-    ; stz line_info+line_data::x1+1
-    ; x1_not_neg:
     
-    ; *** if x1 > 319 then return
+    ; note: despite this not being optimal, it's faster than the optimised because there are so many values higher than 320
+    ; *** if x1 > 319 then return (16-bit)
     lda line_info+line_data::x1+1
     cmp #>SCREEN_WIDTH
     bcc x1_ok
@@ -552,7 +544,7 @@ set_addr_page_3:
     x2_ok:
 
     ; *** if y > 199 then return
-    cmp_lt line_info+line_data::y1, #SCREEN_HEIGHT, y_ok
+    cmp_lt line_info+line_data::y1, #(SCREEN_HEIGHT - 1), y_ok
     rts
     y_ok:
 
@@ -560,15 +552,21 @@ set_addr_page_3:
     ; *** if color == $10 then use transparency
     cmp #$10
     bne not_transparent
-    jsr setup_line
+    jsr setup_line 
+    lsr16_addr line_info+line_data::x1, 1
+    lsr16_addr line_info+line_data::x2, 1
+    ldx line_info+line_data::x1                 ; 3 cycles
     ; set the pixels
-    loop_trans:    
+    loop_trans:
         lda VERA::DATA1 ; todo: this is chunky pixels, need to do single pixels
         ora #$88
         sta VERA::DATA0
-        inc16 line_info+line_data::x1
-        inc16 line_info+line_data::x1
-        cmp16_lt line_info+line_data::x1, line_info+line_data::x2, loop_trans
+        ; inc16 line_info+line_data::x1         ; 7 + 6 cycles
+        inx                                     ; 2 cycles
+        ; inc16 line_info+line_data::x1         ; 7 + 6 cycles
+        ;cmp16_lt line_info+line_data::x1, line_info+line_data::x2, loop_trans  ; 18 cycles
+        cpx line_info+line_data::x2             ; 3 cycles
+        bcc loop_trans                          ; 2 cycles
     rts
 
     not_transparent:
@@ -576,19 +574,46 @@ set_addr_page_3:
     cmp #$11
     bne not_copy
     jsr setup_line
+    lsr16_addr line_info+line_data::x1, 1
+    lsr16_addr line_info+line_data::x2, 1
+    ldx line_info+line_data::x1                 ; 3 cycles
     ; set the pixels
     loop_copy:
         lda VERA::DATA1 ; todo: this is chunky pixels, need to do single pixels
         sta VERA::DATA0
-        inc16 line_info+line_data::x1
-        inc16 line_info+line_data::x1
-        cmp16_lt line_info+line_data::x1, line_info+line_data::x2, loop_copy
+        ; inc16 line_info+line_data::x1         ; 7 + 6 cycles
+        inx                                     ; 2 cycles
+        ; inc16 line_info+line_data::x1         ; 7 + 6 cycles
+        ;cmp16_lt line_info+line_data::x1, line_info+line_data::x2, loop_trans  ; 18 cycles
+        cpx line_info+line_data::x2             ; 3 cycles
+        bcc loop_trans 
     rts
 
     not_copy:
     ; *** if color < $10 then draw solid line
 
-    jsr draw_line_solid
+    jmp draw_line_solid
+
+    ; *** two pixel mode    
+    ; ldx polygon_info+polygon_data::color
+    ; lda color_lookup_hi,x
+    ; sta color_shifted
+    ; ora polygon_info+polygon_data::color
+    ; sta color
+    ; jsr setup_line ; todo: use macro instead for less cycles
+    ; lda color
+    ; lsr16_addr line_info+line_data::x1, 1
+    ; lsr16_addr line_info+line_data::x2, 1
+    ; ldx line_info+line_data::x1
+    ; line_loop:
+    ;     sta VERA::DATA0
+    ;     inx
+    ;     cpx line_info+line_data::x2
+    ;     bcc line_loop
+    ; rts
+
+
+
 
     end:
     rts
@@ -597,14 +622,14 @@ set_addr_page_3:
 .proc draw_line_solid
     color_shifted = vtemp+3
     color = vtemp+4
-    ; *** setup
+    ; *** setup todo: set colors before calling draw_line
     ; color_shifted = color << 4
-    lda polygon_info+polygon_data::color
-    asl_a 4
+    ldx polygon_info+polygon_data::color
+    lda color_lookup_hi,x
     sta color_shifted
     ora polygon_info+polygon_data::color
     sta color
-    jsr setup_line
+    jsr setup_line ; todo: use macro instead for less cycles
 
     ; *** draw initial leading pixels
     ; if x1 is odd, draw the first pixel

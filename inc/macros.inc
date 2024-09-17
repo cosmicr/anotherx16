@@ -6,6 +6,34 @@
         .endif
 .endmacro
 
+.macro abs addr, val_A, val_B
+  sec
+  lda val_B
+  sbc val_A
+  bcs :+
+  eor #$FF
+  inc
+  :
+  sta addr
+.endmacro
+
+.macro min val_A, val_B
+  lda val_A
+  cmp val_B
+  bcc :+
+  lda val_B
+  :
+.endmacro
+
+.macro max val_A, val_B
+  lda val_A
+  cmp val_B
+  bcs :+
+  lda val_B
+  : 
+.endmacro
+
+
 .macro  inc16   addr
 .scope
   inc     addr
@@ -114,6 +142,20 @@ start:
 .endscope
 .endmacro
 
+.macro add addr, value
+  clc
+  lda addr
+  adc #value
+  sta addr
+.endmacro
+
+.macro add_addr addra, addrb
+  clc
+  lda addra
+  adc addrb
+  sta addra
+.endmacro
+
 .macro add16 addr, value
   clc
   lda addr
@@ -123,6 +165,21 @@ start:
   adc #>value
   sta addr+1
 .endmacro
+
+.macro sub addr, value
+  sec
+  lda addr
+  sbc #value
+  sta addr
+.endmacro
+
+.macro sub_addr addra, addrb
+  sec
+  lda addra
+  sbc addrb
+  sta addra
+.endmacro
+
 
 .macro sub16 addr, value
   sec
@@ -311,3 +368,4 @@ start:
   false_label:
 .endscope
 .endmacro
+

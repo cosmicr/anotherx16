@@ -62,6 +62,7 @@ bin/
 *.ps1
 *.txt
 *.bin
+*.png
 
 # Game Files
 DATA??

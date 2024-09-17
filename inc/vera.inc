@@ -11,8 +11,8 @@
 ; ---------------------------------------------------------------
 ; Screen resolution constants
 ; ---------------------------------------------------------------
-SCREEN_WIDTH    = 320
-SCREEN_HEIGHT   = 192
+SCREEN_WIDTH    = 320 ; fixed30
+SCREEN_HEIGHT   = 192 ; (180 to 192) but looks worse the lower you go
 ; page size is screen width * screen height / 2 to the nearest multiple of 2048
-PAGE_SIZE       = ((SCREEN_WIDTH * SCREEN_HEIGHT) / 2 + 2047) & $FFFFF800
+PAGE_SIZE       = ((320 * SCREEN_HEIGHT) / 2 + 2047) & $FFFFF800
 
