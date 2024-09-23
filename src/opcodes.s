@@ -547,8 +547,8 @@ stp
         sta task_ptr
         stz task_ptr+1
         cmp end
-        beq :+
-        bcc kill_loop
+        bcs :+
+        bra kill_loop
     :
     rts
 
@@ -565,8 +565,8 @@ stp
         sta task_ptr
         stz task_ptr+1
         cmp end
-        beq :+
-        bcc state_loop
+        bcs :+
+        bra state_loop
     :
     rts
 .endproc

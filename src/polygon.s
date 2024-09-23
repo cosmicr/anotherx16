@@ -117,11 +117,11 @@
 
     ; read polygon width
     read_polygon_byte
-    ;jsr multiply_zoom
+    jsr multiply_zoom
     sta polygon_info+polygon_data::width
 
     read_polygon_byte
-    ;jsr multiply_zoom
+    jsr multiply_zoom
     sta polygon_info+polygon_data::height
 
     read_polygon_byte
@@ -134,13 +134,13 @@
     vertex_loop:
         phx
         read_polygon_byte
-        ;jsr multiply_zoom
+        jsr multiply_zoom
         plx
         sta polygon_info+polygon_data::vertices,x ; x value
         inx
         phx
         read_polygon_byte
-        ;jsr multiply_zoom
+        jsr multiply_zoom
         plx
         sta polygon_info+polygon_data::vertices,x ; y value
         inx
@@ -401,6 +401,8 @@ stp
             sta line_info+line_data::x2
             stz line_info+line_data::x2+1
 
+            ; todo: instead of adding for each line, 
+            ;       the edgetable could be 16-bit and add before calculating?
             add16_addr line_info+line_data::x1, topleftX
             bpl x1_positive
             stz line_info+line_data::x1
@@ -444,131 +446,6 @@ stp
 ; ---------------------------------------------------------------
 ; Rasterize an edge using Bresenham's line algorithm
 ; ---------------------------------------------------------------
-.proc rasterize_edge_old_version
-    ; set high byte of ztemp to $FF for negative values
-    lda #$FF
-    sta ztemp+1
-    ; Calculate dx = abs(x2 - x1)
-        abs dx, x1, x2
-
-        ; Calculate dy = abs(y2 - y1)
-        abs dy, y1, y2
-
-        ; Set sx = x1 < x2 ? 1 : -1
-        cmp_lt x1, x2, x1_less_than_x2
-        lda #$FF
-        bra sx_done
-    x1_less_than_x2:
-        lda #$01
-    sx_done:
-        sta sx
-
-        ; Set sy = y1 < y2 ? 1 : -1
-        cmp_lt y1, y2, y1_less_than_y2
-        lda #$FF
-        bra sy_done
-    y1_less_than_y2:
-        lda #$01
-    sy_done:
-        sta sy
-
-        stz err+1   ; start dx positive
-        ; Calculate err = (dx > dy ? dx : -dy) / 2
-        cmp_lt dy, dx, dx_greater
-        lda dy
-        lsr 
-        eor #$FF
-        inc 
-        sta err
-        beq end_err
-        lda #$FF
-        sta err+1
-        bra end_err
-    dx_greater:
-        lsr 
-        sta err
-    end_err:
-
-    loop:
-        ; Call update_edge_table(x1, y1)
-        jsr update_edge_table
-
-        ; Check if x1 == x2 and y1 == y2
-        lda x1
-        cmp x2
-        bne continue
-        lda y1
-        cmp y2
-        beq done
-
-    continue:
-        ; e2 = err
-        lda err
-        sta e2
-        lda err+1
-        sta e2+1
-
-    update_x:
-        ; if e2 > -dx
-        lda dx
-        eor #$FF
-        inc        ; negate dx
-        sta ztemp
-        ; Sign-extend the negated dx to 16 bits
-        bne dx_not_zero ; if dx is zero, then the high byte needs to be $00
-        stz ztemp+1
-        dx_not_zero:
-
-        cmp_gt_16s e2, ztemp, e2_greater_than_neg_dx
-        bra update_y
-    e2_greater_than_neg_dx:
-        ; e2 > -dx, so update err and x1
-        lda err
-        sec
-        sbc dy
-        sta err
-        lda err+1
-        sbc #0
-        sta err+1    ; err -= dy (16-bit subtraction)
-
-        ; x1 += sx
-        lda x1
-        clc
-        adc sx
-        sta x1
-
-    update_y:
-        ; if e2 < dy
-        lda e2+1
-        bmi e2_less_than_dy  ; If e2 is negative, it's definitely < dy
-        bne skip_y           ; If e2 high byte > 0, e2 >= dy
-        lda e2
-        cmp dy
-        bcs skip_y
-
-    e2_less_than_dy:
-        ; err += dx
-        lda err
-        clc
-        adc dx
-        sta err
-        lda err+1
-        adc #0
-        sta err+1
-
-        ; y1 += sy
-        lda y1
-        clc
-        adc sy
-        sta y1
-
-    skip_y:
-        jra loop
-        
-    done:
-        rts
-.endproc
-
 .proc rasterize_edge
     x_inc = sx
     y_inc = sy
@@ -674,7 +551,7 @@ stp
 ; ---------------------------------------------------------------
 .proc update_edge_table
     ldx y1
-    cpx #200
+    cpx #(SCREEN_HEIGHT-1) ; should it be 200?
     bcs done
 
     lda x1
@@ -691,42 +568,42 @@ done:
     rts
 .endproc
 
-
 ; ---------------------------------------------------------------
 ; multiply value in A by zoom factor and then shifts right by 6
 ; returns result in A (low byte) and X (high byte)
 ; ---------------------------------------------------------------
 .proc multiply_zoom
-    var = ztemp
-    zoom = ztemp+1
     result = ztemp
-
-    sta var         ; Store the original value of A before zoom check
-    lda polygon_info+polygon_data::zoom
-    cmp #64
+    zoom = ztemp+1
+    
+    ldx polygon_info+polygon_data::zoom
+    cpx #64
     beq no_zoom     ; Skip multiplication if zoom factor is 64
 
     ; Multiplication
-    sta zoom        ; Store zoom factor
-    lda var         ; Load the original A value for multiplication
-    mulx_addr var, zoom
-    sta result
+    sta result      
+    stx zoom        ; Store zoom factor
+    mulx_addr result, zoom
     stx result+1
 
-    ; Divide by 64 (shift right by 6) using clever shifting
-    asl result
-    rol result+1
-    rol result
-    rol result+1
-    rol result
-
-    lda result+1    ; Load high byte into A
-    ldx result      ; Load low byte into X
+    ; Division by 64
+    lsr result+1    ; 5
+    ror             ; 2  
+    lsr result+1    ; 5
+    ror             ; 2
+    lsr result+1    ; 5
+    ror             ; 2
+    lsr result+1    ; 5
+    ror             ; 2
+    lsr result+1    ; 5
+    ror             ; 2
+    lsr result+1    ; 5
+    ror             ; 2
+    ldx result+1    ; 3
 
     rts
 
 no_zoom:
-    lda var         ; Load original value into A (no zoom applied)
     ldx #00         ; Set high byte to 0 since no multiplication occurred
     rts
 .endproc

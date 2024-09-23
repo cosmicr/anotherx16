@@ -53,15 +53,15 @@
     jsr init_engine
     jsr init_game
 
-;     lda #0
-;     sta state+engine::draw_page
-;     lda #0
-;     jsr clear_page
-;     lda #0
-;     jsr clear_page
-;     wai
-;     wai
-;     wai
+    lda #0
+    sta state+engine::draw_page
+    lda #0
+    jsr clear_page
+    lda #0
+    jsr clear_page
+    wai
+    wai
+    wai
 ; ; Test 1: Full-Width Line at the Top of the Screen
 ; stz line_info+line_data::x1
 ; stz line_info+line_data::x1+1
@@ -280,6 +280,26 @@
 ; wai
 ; wai
 ; stp
+
+; ; Test 14: a line starting at 1,1 and ending at 2,1
+; lda #100
+; sta line_info+line_data::y1
+; lda #<0
+; sta line_info+line_data::x1
+; lda #>0
+; sta line_info+line_data::x1+1
+; lda #<319
+; sta line_info+line_data::x2
+; lda #>319
+; sta line_info+line_data::x2+1
+; lda #14
+; sta polygon_info+polygon_data::color
+; jsr draw_line
+; wai
+; wai
+; stp
+
+
 
     ; GAME LOOP
     @loop:

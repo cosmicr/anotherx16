@@ -66,6 +66,29 @@
     color_lookup_hi:
         .byte $00, $10, $20, $30, $40, $50, $60, $70, $80, $90, $A0, $B0, $C0, $D0, $E0, $F0
 
+    color_lookup_shifted:
+        .byte $00, $11, $22, $33, $44, $55, $66, $77, $88, $99, $AA, $BB, $CC, $DD, $EE, $FF
+
+    mask_leading:
+        .byte %00000000 ; $00
+        .byte %00000010 ; $02
+        .byte %00000011 ; $03
+        .byte %00001011 ; $0B
+        .byte %00001111 ; $0F
+        .byte %00101111 ; $2F
+        .byte %00111111 ; $3F
+        .byte %10111111 ; $BF
+
+    mask_trailing:
+        .byte %11111101 ; $FD
+        .byte %11111100 ; $FC
+        .byte %11110100 ; $F4
+        .byte %11110000 ; $F0
+        .byte %11010000 ; $D0
+        .byte %11000000 ; $C0
+        .byte %01000000 ; $40
+        .byte %00000000 ; $00
+
 .segment "CODE"
 
 .macro calc_slope xa, ya, xb, yb, slope
@@ -372,7 +395,6 @@ set_addr_page_3:
     red: .res 1
 
 .segment "CODE"
-
     sta pal_index ; store palette number
     stz pal_index+1
 
@@ -566,18 +588,15 @@ set_addr_page_3:
     ldx line_info+line_data::x1                 ; 3 cycles
     ; set the pixels
     loop_trans:
-        lda VERA::DATA1 ; todo: this is chunky pixels, need to do single pixels
+        lda VERA::DATA1 
         ora #$88
         sta VERA::DATA0
-        ; inc16 line_info+line_data::x1         ; 7 + 6 cycles
         inx                                     ; 2 cycles
-        ; inc16 line_info+line_data::x1         ; 7 + 6 cycles
-        ;cmp16_lt line_info+line_data::x1, line_info+line_data::x2, loop_trans  ; 18 cycles
         cpx line_info+line_data::x2             ; 3 cycles
         bcc loop_trans                          ; 2 cycles
     rts
-
     not_transparent:
+
     ; *** if color == $11 then copy
     cmp #$11
     bne not_copy
@@ -587,19 +606,15 @@ set_addr_page_3:
     ldx line_info+line_data::x1                 ; 3 cycles
     ; set the pixels
     loop_copy:
-        lda VERA::DATA1 ; todo: this is chunky pixels, need to do single pixels
+        lda VERA::DATA1 
         sta VERA::DATA0
-        ; inc16 line_info+line_data::x1         ; 7 + 6 cycles
         inx                                     ; 2 cycles
-        ; inc16 line_info+line_data::x1         ; 7 + 6 cycles
-        ;cmp16_lt line_info+line_data::x1, line_info+line_data::x2, loop_trans  ; 18 cycles
         cpx line_info+line_data::x2             ; 3 cycles
         bcc loop_trans 
     rts
-
     not_copy:
-    ; *** if color < $10 then draw solid line
 
+    ; *** if color < $10 then draw solid line
     jmp draw_line_solid
 
     ; *** two pixel mode    
@@ -620,135 +635,96 @@ set_addr_page_3:
     ;     bcc line_loop
     ; rts
 
-
-
-
     end:
     rts
 .endproc
 
 .proc draw_line_solid
-    color_shifted = vtemp+3
-    color = vtemp+4
-    ; *** setup todo: set colors before calling draw_line
-    ; color_shifted = color << 4
-    ldx polygon_info+polygon_data::color
-    lda color_lookup_hi,x
-    sta color_shifted
-    ora polygon_info+polygon_data::color
-    sta color
+    num_loops = vtemp
+    leading_mask = vtemp+1
+    trailing_mask = vtemp+2
+
     jsr setup_line ; todo: use macro instead for less cycles
 
-    ; *** draw initial leading pixels
-    ; if x1 is odd, draw the first pixel
-    lda line_info+line_data::x1
-    and #$01
-    beq x1_even
-    lda VERA::DATA0
-    and #$F0
-    ora polygon_info+polygon_data::color
-    sta VERA::DATA1
-    inc16 line_info+line_data::x1
-    x1_even:
-    ; now the rest of the pixels
-    leading_loop:
-        lda line_info+line_data::x1
-        and #$07
-        beq x1_aligned
-        cmp16_ge line_info+line_data::x1, line_info+line_data::x2, x1_aligned
-        lda color
-        sta VERA::DATA1
-        lda VERA::DATA0 ; do nothing, just increment
-        inc16 line_info+line_data::x1
-        inc16 line_info+line_data::x1 ; increment until we are aligned
-        bra leading_loop
-    x1_aligned:
-
-    ; *** draw the 8 pixel blocks
-    ; end_block = x2 & $FFF8
-    lda line_info+line_data::x2
-    and #$F8
-    sta end_block
-    lda line_info+line_data::x2+1
-    sta end_block+1
+    ; todo: fill the cache before calling draw_line
     ; fill the cache
-    lda #(2<<1)     ; set DCSEL to 2
-    sta VERA::CTRL
+    set_dcsel 2
     lda #%01000000   ; set cache write enable
-    sta $9F29       ; FX_CTRL
-    lda #(6<<1)     ; set DCSEL to 6
-    sta VERA::CTRL
-    
-    lda color
-    sta $9F29       ; FX_CACHE_L
-    sta $9F2A       ; FX_CACHE_M
-    sta $9F2B       ; FX_CACHE_H
-    sta $9F2C       ; FX_CACHE_U
-    
+    sta FX_CTRL
+
+    set_dcsel 6      ; set cache write mode
+    ldx polygon_info+polygon_data::color
+    lda color_lookup_shifted,x
+    sta FX_CACHE_L
+    sta FX_CACHE_M
+    sta FX_CACHE_H
+    sta FX_CACHE_U
+
+    ; set 4 byte increment
     lda VERA::ADDR+2
-    and #$0F
+    and #$01        ; mask out the low bit
     ora #VERA::INC4 ; set port 0 auto increment to 4 bytes
     sta VERA::ADDR+2
 
-    ; while x1 < end_block
-    block_loop:
-        cmp16_ge line_info+line_data::x1, end_block, end_aligned
-        stz VERA::DATA0
-        add16 line_info+line_data::x1, 8
-        bra block_loop
-    
-    end_aligned:
-    ; reset increment to 1 byte
-    lda #(2<<1)     ; set DCSEL to 2
-    sta VERA::CTRL
-    stz $9F29       ; FX_CTRL
-    stz VERA::CTRL  ; set DCSEL to 0
-    lda VERA::ADDR+2
-    and #$0F
-    ora #VERA::INC1
-    sta VERA::ADDR+2
-    sta vtemp+7
-    lda VERA::ADDR+1
-    sta vtemp+6
-    lda VERA::ADDR
-    sta vtemp+5
-    lda #1
-    sta VERA::CTRL  ; set port 1
-    lda vtemp+5
-    sta VERA::ADDR
-    lda vtemp+6
-    sta VERA::ADDR+1
-    lda vtemp+7
-    sta VERA::ADDR+2
-    stz VERA::CTRL  ; set port 0
-
-    ; if x1 == x2 then we're finished
-    cmp16_ge line_info+line_data::x1, line_info+line_data::x2, end
-
-    ; *** draw the trailing pixels ; todo: this is not correct, maybe just brute force it?
-    sub16_addr line_info+line_data::x2, line_info+line_data::x1
-    lda line_info+line_data::x2
-    beq end ; if it's zero we're done
-
-    sta line_info+line_data::x1
-    lsr line_info+line_data::x2 ; divide by 2
-    beq final_pixel
-    trailing_loop:
-        lda color
-        sta VERA::DATA0
-        lda VERA::DATA1 ; do nothing, just increment
-        dec line_info+line_data::x2
-        bne trailing_loop
-    final_pixel:
+    ; set leading mask
     lda line_info+line_data::x1
-    and #$01
-    beq end
-    lda VERA::DATA0
-    and #$0F
-    ora color_shifted
-    sta VERA::DATA1
-    
-    end:
+    and #$07
+    tay
+    lda mask_leading,y
+    sta leading_mask
+
+    ; set trailing mask
+    lda line_info+line_data::x2
+    and #$07
+    tay
+    lda mask_trailing,y
+    sta trailing_mask
+
+    ; calc start byte = x1 / 8
+    lsr16_addr line_info+line_data::x1, 3
+
+    ; calc end byte = x2 / 8
+    lsr16_addr line_info+line_data::x2, 3
+
+    ; if start byte == end byte, then draw a short line
+    lda line_info+line_data::x1
+    cmp line_info+line_data::x2
+    bne long_line
+    lda leading_mask
+    ora trailing_mask
+    sta VERA::DATA0
+    bra end_line
+
+    long_line:
+    ; calc number of loops
+    sec
+    lda line_info+line_data::x2
+    sbc line_info+line_data::x1
+    dec
+    sta num_loops
+
+        ; draw leading mask
+    lda leading_mask
+    sta VERA::DATA0
+
+    ldx num_loops
+    beq no_middle
+    line_loop:
+        stz VERA::DATA0
+        dex
+        bne line_loop
+
+    no_middle:
+    ; draw trailing mask
+    lda trailing_mask
+    sta VERA::DATA0
+
+    end_line:
+    ; reset fx control
+    set_dcsel 2
+    stz FX_CTRL
+    set_dcsel 0
+
     rts
 .endproc
 
@@ -812,45 +788,6 @@ set_addr_page_3:
 .endproc
 
 ; ---------------------------------------------------------------
-; Setup VERA for a solid line
-; helper function for draw_line
-; A: x low
-; X: x high
-; ---------------------------------------------------------------
-.proc setup_line_solid
-    sta vtemp
-    stx vtemp+1
-    lsr16_addr vtemp, 1
-    stz VERA::CTRL
-    lda state+engine::draw_page
-    jsr set_addr_page
-    ; set vera address to y*160 + x1/2
-    ldy line_info+line_data::y1
-    lda y160_lookup_lo,y
-    clc
-    adc VERA::ADDR
-    sta VERA::ADDR
-    lda y160_lookup_hi,y
-    adc VERA::ADDR+1
-    sta VERA::ADDR+1
-    lda #0
-    adc VERA::ADDR+2
-    sta VERA::ADDR+2    ; y * 160
-    lda vtemp
-    clc
-    adc VERA::ADDR
-    sta VERA::ADDR
-    lda vtemp+1
-    adc VERA::ADDR+1
-    sta VERA::ADDR+1
-    lda #0
-    adc VERA::ADDR+2
-    sta VERA::ADDR+2    ; y * 160 + x1/2
-
-    rts
-.endproc
-
-; ---------------------------------------------------------------
 ; Draw a pixel using the line_info struct
 ; ---------------------------------------------------------------
 .proc draw_pixel
@@ -891,8 +828,8 @@ set_addr_page_3:
     bra @done
 
     @even:
-    lda line_info+line_data::color
-    asl_a 4
+    ldx line_info+line_data::color
+    lda color_lookup_hi,x
     sta vtemp
     lda VERA::DATA0
     and #$0F
