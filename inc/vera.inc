@@ -7,6 +7,7 @@
 .global set_addr_page, set_palette, set_vera_page
 .global copy_page_screen, copy_screen_page, copy_page
 .global draw_line, draw_pixel
+.global color_lookup_shifted
 
 ; ---------------------------------------------------------------
 ; Screen resolution constants

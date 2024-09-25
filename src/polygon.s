@@ -169,9 +169,6 @@
     cx = nx
     cy = ny
 
-    stz nx+1
-    stz ny+1
-
     read_polygon_byte
     jsr multiply_zoom
     sta nx
@@ -337,7 +334,9 @@ stp
     lda topleftY
     sta line_info+line_data::y1
     ; if width is > 1, draw a line
-    cmp_ge polygon_info+polygon_data::width, #2, line
+    lda polygon_info+polygon_data::width
+    cmp #1
+    bcs line
     ; else draw a pixel
     jmp draw_pixel
     
@@ -384,12 +383,29 @@ stp
         done_raster:
         ; temp test
 
+        ; fill the cache
+        set_dcsel 2
+        lda #%00100000   ; set cache write enable
+        sta FX_CTRL
+
+        set_dcsel 6      ; set cache write mode
+        ldx polygon_info+polygon_data::color
+        lda color_lookup_shifted,x
+        sta FX_CACHE_L
+        sta FX_CACHE_M
+        sta FX_CACHE_H
+        sta FX_CACHE_U
+
+        set_dcsel 2
+        stz FX_CTRL
+        set_dcsel 0
+
         ; *** draw horizontal lines between min_x and max_x for each y
         ldy polygon_info+polygon_data::num_vertices ; is half length of vertices
         lda polygon_info+polygon_data::vertices+1,y ; the middle y value is max_y
         sta max_y
         ldy polygon_info+polygon_data::vertices+1 ; first y value is min_y
-        tya
+        tya ; copy Y value to A
         clc
         adc topleftY
         sta line_info+line_data::y1
@@ -551,7 +567,7 @@ stp
 ; ---------------------------------------------------------------
 .proc update_edge_table
     ldx y1
-    cpx #(SCREEN_HEIGHT-1) ; should it be 200?
+    cpx #(199) ; hard coded to 200
     bcs done
 
     lda x1
@@ -600,7 +616,7 @@ done:
     lsr result+1    ; 5
     ror             ; 2
     ldx result+1    ; 3
-
+    
     rts
 
 no_zoom:

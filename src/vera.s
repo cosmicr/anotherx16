@@ -23,7 +23,6 @@
 ; todo: clean up zero page variables
 .segment "ZEROPAGE"
     vtemp:              .res 8
-    end_block:          .res 2
 
 .segment "RODATA"
     y160_lookup_lo: ; clamped at 200
@@ -91,105 +90,6 @@
 
 .segment "CODE"
 
-.macro calc_slope xa, ya, xb, yb, slope
-.scope
-    ; Calculate dx = xb - xa (24-bit)
-    sec
-    lda xb
-    sbc xa
-    sta dx
-    lda xb+1
-    sbc xa+1
-    sta dx+1
-    ; extend sign if dx is negative
-    stz dx+2
-    lda dx+1
-    bpl @positive
-    lda #$FF
-    sta dx+2
-    @positive:
-
-    ; Calculate dy = yb - ya (24-bit)
-    lda yb
-    sec
-    sbc ya
-    sta dy
-    stz dy+1
-    stz dy+2
-
-    lda dy
-    beq @zero  ; if dy = 0, slope = 0
-
-    ; slope = ((dx << 9) / dy) >> 1
-    ; Shift dx left by 9 (24-bit shift)
-    lda dx+1
-    sta dx+2
-    lda dx
-    sta dx+1
-    stz dx
-    asl dx+1
-    rol dx+2
-
-    ; Push dy onto the stack (divisor)
-    lda dy
-    pha
-
-    ; Load dx into A, X, Y for division
-    lda dx
-    ldx dx+1
-    ldy dx+2
-    jsr divide24  ; 24-bit / 8-bit division
-
-    ; Result is now in A (low) and X (high)
-    sta slope
-    stx slope+1
-    cpx #$80        ; Check for negative result and set carry bit
-    ror slope+1     ; rotate sign bit into high byte
-    ror slope       ; slope = slope >> 1
-    bra @finish
-
-@zero:
-    stz slope
-    stz slope+1
-@finish:
-.endscope
-.endmacro
-
-.macro clamp_zero var
-    lda var+1
-    beq :+
-    stz var
-    stz var+1
-    :
-.endmacro
-
-.macro clamp_y var, max
-    lda var
-    cmp max
-    bcc :+
-    lda max
-    sta var
-    :
-.endmacro
-
-.macro clamp_high var, max
-    lda var    ; Load low byte
-    cmp max    ; Compare with max
-    bcc :+     ; If less than max, check high byte
-    bne :++    ; If greater than max, clamp
-    
-:   ; Low byte equals max, check high byte
-    lda var+1
-    beq :++    ; If high byte is zero, we're done
-    
-:   ; Clamp to max
-    lda max
-    sta var
-    stz var+1
-    
-:   ; Done
-.endmacro
-
 ; ---------------------------------------------------------------
 ; Initialise the VERA
 ; ---------------------------------------------------------------
@@ -221,7 +121,7 @@
 .endproc
 
 ; ---------------------------------------------------------------
-; Set the tilebase for layer 0
+; Set the tilebase pointer for layer 0
 ; A: page number
 ; Page address is A * 30720
 ; ---------------------------------------------------------------
@@ -318,23 +218,21 @@ set_addr_page_3:
     tax
 
     ; Enable DCSEL mode 2 to allow cache operations
-    lda #(2<<1)             ;#VERA::DCSEL::MODE2
-    sta VERA::CTRL
+    set_dcsel 2
 
     ; Enable cache writing 
     lda #(1<<6)             ;#VERA::FX_CTRL_FLAGS::CACHE_WRITE_EN
-    sta $9F29               ;FX_CTRL
+    sta FX_CTRL               ;FX_CTRL
 
     ; Change DCSEL to mode 6 for cache write operations
-    lda #(6<<1)             ;#VERA::DCSEL::MODE6
-    sta VERA::CTRL
+    set_dcsel 6
 
     ; Prepare the 32-bit cache with the colour to clear the screen with
     txa
-    sta $9F29               ;VERA::FX_CACHE_L
-    sta $9F2A               ;VERA::FX_CACHE_M
-    sta $9F2B               ;VERA::FX_CACHE_H
-    sta $9F2C               ;VERA::FX_CACHE_U
+    sta FX_CACHE_L
+    sta FX_CACHE_M
+    sta FX_CACHE_H
+    sta FX_CACHE_U
 
     ; Set address auto-increment to 4 bytes
     lda #VERA::INC4
@@ -354,11 +252,9 @@ set_addr_page_3:
         dex                 ; Decrement high byte of loop counter
         bne clear_loop      ; Continue loop if high byte is not zero
 
-    lda #(2<<1)             ;#VERA::DCSEL::MODE2
-    sta VERA::CTRL     
-    lda $9F29               ;FX_CTRL 
-    eor #(1<<6)             ;#VERA::FX_CTRL_FLAGS::CACHE_WRITE_EN
-    sta $9F29               ;FX_CTRL        ;Disable cache writing
+    set_dcsel 2             ; Set DCSEL back to 0
+    lda #(1<<6)             ;#VERA::FX_CTRL_FLAGS::CACHE_WRITE_EN
+    trb FX_CTRL             ;FX_CTRL        ;Disable cache writing
 
     stz VERA::CTRL          ;#VERA::DCSEL::MODE0
     
@@ -381,42 +277,37 @@ set_addr_page_3:
     rts
 .endproc 
 
-
 ; ---------------------------------------------------------------
 ; Set palette
 ; A: palette number
 ; ---------------------------------------------------------------
 .proc set_palette
-    resource = vtemp ; todo: this is messy
-.segment "DATA"
-    pal_index: .res 2
-    palette_addr: .res 3
-    bank_num: .res 1
-    red: .res 1
+    pal_index = vtemp
+    palette_addr = vtemp + 2
+    red = vtemp + 5
+    res_addr = vtemp + 6
 
-.segment "CODE"
     sta pal_index ; store palette number
     stz pal_index+1
 
+    ; get the memory address for the game palette resource struct
     lda state+engine::palette
-    sta resource
+    sta res_addr
     lda state+engine::palette+1
-    sta resource+1
+    sta res_addr+1
 
-    ; ldy #resource::rank
-    ; lda (resource),y
-    ; sta bank_num
+    ; get the palette address from the resource struct
     ldy #resource::pointer
-    lda (resource),y
+    lda (res_addr),y
     sta palette_addr  
     iny  
-    lda (resource),y
+    lda (res_addr),y
     sta palette_addr+1
     iny
-    lda (resource),y
+    lda (res_addr),y
     sta palette_addr+2
 
-    ; add 32 * palette number to the palette address
+    ; add 32 * palette number to the palette address (palettes are 32 bytes each)
     asl16_addr pal_index, 5 ; multiply by 32
     lda pal_index
     clc
@@ -443,22 +334,23 @@ set_addr_page_3:
     ; 0000RRRR, GGGGBBBB
     palette_loop:
         phy
-        ldy #RESOURCE_BANK_START    ; bank_num
         lda palette_addr
         ldx palette_addr+1
         ldy palette_addr+2
-        jsr read_byte           ; red
+        jsr read_byte       ; get red
         sta red
         inc24 palette_addr
-        ldy #RESOURCE_BANK_START
+
         lda palette_addr
         ldx palette_addr+1
         ldy palette_addr+2
-        jsr read_byte
-        sta VERA::DATA0
-        lda red
-        sta VERA::DATA0
+        jsr read_byte       ; get green and blue
+        sta VERA::DATA0     ; set green and blue
         inc24 palette_addr
+
+        lda red
+        sta VERA::DATA0     ; set red
+
         ply
         iny
         cpy #16
@@ -478,8 +370,7 @@ set_addr_page_3:
 
     ; set increment to 1 byte for the page
     lda #VERA::INC1
-    ora VERA::ADDR + 2
-    sta VERA::ADDR + 2
+    tsb VERA::ADDR + 2
 
     ; Set data port to 1
     lda #1
@@ -489,35 +380,32 @@ set_addr_page_3:
     txa
     jsr set_addr_page
     lda #VERA::INC4
-    ora VERA::ADDR + 2
-    sta VERA::ADDR + 2
+    tsb VERA::ADDR + 2
     
     ; set DCSEL to 2
-    lda #(2<<1)
-    sta VERA::CTRL
+    set_dcsel 2
 
-    ; loop through the screen and copy to the page, incrementing Y every 320 X, 200 times
+    ; loop through the screen and copy to the page
     ldy #>(PAGE_SIZE / (REPEAT_COUNT * 4))
     ldx #<(PAGE_SIZE / (REPEAT_COUNT * 4))
 
     copy_loop:
         .repeat REPEAT_COUNT
-        ; FX CTRL CACHE FILL
-        lda #(1<<5)
-        sta $9F29
+            ; FX CTRL CACHE FILL
+            lda #(1<<5)
+            sta FX_CTRL
 
-        lda VERA::DATA0
-        lda VERA::DATA0
-        lda VERA::DATA0
-        lda VERA::DATA0 ; do nothing it just fills the cache
+            lda VERA::DATA0
+            lda VERA::DATA0
+            lda VERA::DATA0
+            lda VERA::DATA0 ; do nothing it just fills the cache
 
-        ; FX CTRL CACHE WRITE
-        lda #(1<<6)
-        sta $9F29
+            ; FX CTRL CACHE WRITE
+            lda #(1<<6)
+            sta FX_CTRL
 
-        ; write to data1
+            ; write to data1
             stz VERA::DATA1 ; (0 bitmask)
-
         .endrepeat
 
         dex
@@ -526,13 +414,73 @@ set_addr_page_3:
         jne copy_loop
 
     ; turn off cache fill and write
-    stz $9F29
+    stz FX_CTRL
     
     ; set DSCEL to 0
     stz VERA::CTRL
     
     rts
 .endproc
+
+; ---------------------------------------------------------------
+; Setup VERA for a transparent line or a copy line
+; sets port 0 and port 1 to the same address
+; helper function for draw_line
+; uses line_info struct
+; ---------------------------------------------------------------
+.macro setup_line
+    ; set control port 1
+    lda #1
+    sta VERA::CTRL
+
+    ; set the address start
+    lda state+engine::draw_page
+    jsr set_addr_page   ; todo: integrate y lookup into this routine
+
+    ; todo: use 4 lookup tables instead of adding from one
+    ; add Y offset to address
+    ldy line_info+line_data::y1
+    lda y160_lookup_lo,y
+    clc
+    adc VERA::ADDR
+    sta VERA::ADDR
+    lda y160_lookup_hi,y
+    adc VERA::ADDR+1
+    sta VERA::ADDR+1
+    lda #0
+    adc VERA::ADDR+2
+    sta VERA::ADDR+2    ; y * 160
+
+    ; x1 divided by 2
+    lda line_info+line_data::x1+1
+    lsr
+    sta vtemp+1                     ; save high byte
+    lda line_info+line_data::x1
+    ror
+    clc
+    adc VERA::ADDR
+    sta VERA::ADDR
+    sta vtemp
+    lda vtemp+1                     ; high byte
+    adc VERA::ADDR+1
+    sta VERA::ADDR+1
+    sta vtemp+1
+    lda #0
+    adc VERA::ADDR+2
+    ora #VERA::INC1
+    sta VERA::ADDR+2                ; y * 160 + x1/2
+    sta vtemp+2
+
+    ; set control port 0
+    stz VERA::CTRL
+    lda vtemp
+    sta VERA::ADDR
+    lda vtemp+1
+    sta VERA::ADDR+1
+    lda vtemp+2
+    sta VERA::ADDR+2
+    ; rts
+.endmacro
 
 ; ---------------------------------------------------------------
 ; Draw a horizontal line
@@ -578,11 +526,31 @@ set_addr_page_3:
     rts
     y_ok:
 
+    ; macro
+    setup_line 
+
     lda polygon_info+polygon_data::color
+
+    ; todo: break out into separate functions and check color before calling
+    ; *** if color == $11 then copy
+    cmp #$11
+    bne not_copy
+    lsr16_addr line_info+line_data::x1, 1
+    lsr16_addr line_info+line_data::x2, 1
+    ldx line_info+line_data::x1                 ; 3 cycles
+    ; set the pixels
+    loop_copy:
+        lda VERA::DATA1 
+        sta VERA::DATA0
+        inx                                     ; 2 cycles
+        cpx line_info+line_data::x2             ; 3 cycles
+        bcc loop_trans 
+    rts
+    not_copy:
+
     ; *** if color == $10 then use transparency
     cmp #$10
-    bne not_transparent
-    jsr setup_line 
+    bne not_transparent 
     lsr16_addr line_info+line_data::x1, 1
     lsr16_addr line_info+line_data::x2, 1
     ldx line_info+line_data::x1                 ; 3 cycles
@@ -597,25 +565,9 @@ set_addr_page_3:
     rts
     not_transparent:
 
-    ; *** if color == $11 then copy
-    cmp #$11
-    bne not_copy
-    jsr setup_line
-    lsr16_addr line_info+line_data::x1, 1
-    lsr16_addr line_info+line_data::x2, 1
-    ldx line_info+line_data::x1                 ; 3 cycles
-    ; set the pixels
-    loop_copy:
-        lda VERA::DATA1 
-        sta VERA::DATA0
-        inx                                     ; 2 cycles
-        cpx line_info+line_data::x2             ; 3 cycles
-        bcc loop_trans 
-    rts
-    not_copy:
-
     ; *** if color < $10 then draw solid line
-    jmp draw_line_solid
+    cmp #$10
+    jcc draw_line_solid
 
     ; *** two pixel mode    
     ; ldx polygon_info+polygon_data::color
@@ -644,21 +596,10 @@ set_addr_page_3:
     leading_mask = vtemp+1
     trailing_mask = vtemp+2
 
-    jsr setup_line ; todo: use macro instead for less cycles
-
-    ; todo: fill the cache before calling draw_line
-    ; fill the cache
     set_dcsel 2
     lda #%01000000   ; set cache write enable
     sta FX_CTRL
-
-    set_dcsel 6      ; set cache write mode
-    ldx polygon_info+polygon_data::color
-    lda color_lookup_shifted,x
-    sta FX_CACHE_L
-    sta FX_CACHE_M
-    sta FX_CACHE_H
-    sta FX_CACHE_U
+    set_dcsel 6      ; set cache mode
 
     ; set 4 byte increment
     lda VERA::ADDR+2
@@ -725,65 +666,6 @@ set_addr_page_3:
     stz FX_CTRL
     set_dcsel 0
 
-    rts
-.endproc
-
-; ---------------------------------------------------------------
-; Setup VERA for a transparent line or a copy line
-; sets port 0 and port 1 to the same address
-; helper function for draw_line
-; uses line_info struct
-; ---------------------------------------------------------------
-.proc setup_line
-    ; set control port 1
-    lda #1
-    sta VERA::CTRL
-    ; set the address start
-    lda state+engine::draw_page
-    ; lda state+engine::display_page
-    jsr set_addr_page
-
-    ; add Y offset to address
-    ldy line_info+line_data::y1
-    lda y160_lookup_lo,y
-    clc
-    adc VERA::ADDR
-    sta VERA::ADDR
-    lda y160_lookup_hi,y
-    adc VERA::ADDR+1
-    sta VERA::ADDR+1
-    lda #0
-    adc VERA::ADDR+2
-    sta VERA::ADDR+2    ; y * 160
-
-    ; add x1/2 to address
-    lda line_info+line_data::x1+1
-    lsr ; divide by 2
-    sta vtemp+1 ; save the high byte temporarily
-    lda line_info+line_data::x1
-    ror ; divide by 2
-    clc
-    adc VERA::ADDR
-    sta VERA::ADDR
-    sta vtemp
-    lda vtemp+1 ; high byte
-    adc VERA::ADDR+1
-    sta VERA::ADDR+1
-    sta vtemp+1
-    lda #0
-    adc VERA::ADDR+2
-    ora #VERA::INC1
-    sta VERA::ADDR+2    ; y * 160 + x1/2
-    sta vtemp+2
-
-    ; set control port 0
-    stz VERA::CTRL
-    lda vtemp
-    sta VERA::ADDR
-    lda vtemp+1
-    sta VERA::ADDR+1
-    lda vtemp+2
-    sta VERA::ADDR+2
     rts
 .endproc
 

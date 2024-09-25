@@ -161,8 +161,7 @@
             lda #0
             sta_task task::stack_pos            ; task stack_pos = 0
 
-            txa
-            sta state+engine::current_task      ; current_task = x
+            stx state+engine::current_task      ; current_task = x
             stz state+engine::task_paused       ; task_paused = 0
 
             ; save current_task
