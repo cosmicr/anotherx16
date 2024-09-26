@@ -23,6 +23,8 @@
 ; todo: clean up zero page variables
 .segment "ZEROPAGE"
     vtemp:              .res 8
+    dx:                 .res 4
+    dy:                 .res 4
 
 .segment "RODATA"
     y160_lookup_lo: ; clamped at 200
@@ -482,242 +484,537 @@ set_addr_page_3:
     ; rts
 .endmacro
 
-; ---------------------------------------------------------------
-; Draw a horizontal line
-; uses data saved in line_info+line_data struct
-; todo: this could be optimised...
-; ---------------------------------------------------------------
-.proc draw_line
-    color_shifted = vtemp+2
-    color = vtemp+3
-    x2_minus_8 = vtemp+4
-    x2_minus_2 = vtemp+6
+; ; ---------------------------------------------------------------
+; ; Draw a horizontal line
+; ; uses data saved in line_info+line_data struct
+; ; todo: this could be optimised...
+; ; ---------------------------------------------------------------
+; .proc draw_line
+;     color_shifted = vtemp+2
+;     color = vtemp+3
+;     x2_minus_8 = vtemp+4
+;     x2_minus_2 = vtemp+6
     
-    ; note: despite this not being optimal, it's faster than the optimised because there are so many values higher than 320
-    ; *** if x1 > 319 then return (16-bit)
-    lda line_info+line_data::x1+1
-    cmp #>SCREEN_WIDTH
-    bcc x1_ok
-    bne :+
-    lda line_info+line_data::x1
-    cmp #<SCREEN_WIDTH
-    bcc x1_ok
-    :
-    rts
-    x1_ok:
+;     ; note: despite this not being optimal, it's faster than the optimised because there are so many values higher than 320
+;     ; *** if x1 > 319 then return (16-bit)
+;     lda line_info+line_data::x1+1
+;     cmp #>SCREEN_WIDTH
+;     bcc x1_ok
+;     bne :+
+;     lda line_info+line_data::x1
+;     cmp #<SCREEN_WIDTH
+;     bcc x1_ok
+;     :
+;     rts
+;     x1_ok:
 
-    ; *** if x2 > 319 then x2 = 319 
-    lda line_info+line_data::x2+1
-    cmp #>SCREEN_WIDTH
-    bcc x2_ok
-    bne :+
-    lda line_info+line_data::x2
-    cmp #<SCREEN_WIDTH
-    bcc x2_ok
-    :
-    lda #<(SCREEN_WIDTH - 1)
-    sta line_info+line_data::x2
-    lda #>(SCREEN_WIDTH - 1)
-    sta line_info+line_data::x2+1
-    x2_ok:
+;     ; *** if x2 > 319 then x2 = 319 
+;     lda line_info+line_data::x2+1
+;     cmp #>SCREEN_WIDTH
+;     bcc x2_ok
+;     bne :+
+;     lda line_info+line_data::x2
+;     cmp #<SCREEN_WIDTH
+;     bcc x2_ok
+;     :
+;     lda #<(SCREEN_WIDTH - 1)
+;     sta line_info+line_data::x2
+;     lda #>(SCREEN_WIDTH - 1)
+;     sta line_info+line_data::x2+1
+;     x2_ok:
 
-    ; *** if y > 199 then return
-    cmp_lt line_info+line_data::y1, #(SCREEN_HEIGHT - 1), y_ok
-    rts
-    y_ok:
+;     ; *** if y > 199 then return
+;     cmp_lt line_info+line_data::y1, #(SCREEN_HEIGHT - 1), y_ok
+;     rts
+;     y_ok:
 
-    ; macro
-    setup_line 
+;     ; macro
+;     setup_line 
 
-    lda polygon_info+polygon_data::color
+;     lda polygon_info+polygon_data::color
 
-    ; todo: break out into separate functions and check color before calling
-    ; *** if color == $11 then copy
-    cmp #$11
-    bne not_copy
-    lsr16_addr line_info+line_data::x1, 1
-    lsr16_addr line_info+line_data::x2, 1
-    ldx line_info+line_data::x1                 ; 3 cycles
-    ; set the pixels
-    loop_copy:
-        lda VERA::DATA1 
-        sta VERA::DATA0
-        inx                                     ; 2 cycles
-        cpx line_info+line_data::x2             ; 3 cycles
-        bcc loop_trans 
-    rts
-    not_copy:
+;     ; todo: break out into separate functions and check color before calling
+;     ; *** if color == $11 then copy
+;     cmp #$11
+;     bne not_copy
+;     lsr16_addr line_info+line_data::x1, 1
+;     lsr16_addr line_info+line_data::x2, 1
+;     ldx line_info+line_data::x1                 ; 3 cycles
+;     ; set the pixels
+;     loop_copy:
+;         lda VERA::DATA1 
+;         sta VERA::DATA0
+;         inx                                     ; 2 cycles
+;         cpx line_info+line_data::x2             ; 3 cycles
+;         bcc loop_trans 
+;     rts
+;     not_copy:
 
-    ; *** if color == $10 then use transparency
-    cmp #$10
-    bne not_transparent 
-    lsr16_addr line_info+line_data::x1, 1
-    lsr16_addr line_info+line_data::x2, 1
-    ldx line_info+line_data::x1                 ; 3 cycles
-    ; set the pixels
-    loop_trans:
-        lda VERA::DATA1 
-        ora #$88
-        sta VERA::DATA0
-        inx                                     ; 2 cycles
-        cpx line_info+line_data::x2             ; 3 cycles
-        bcc loop_trans                          ; 2 cycles
-    rts
-    not_transparent:
+;     ; *** if color == $10 then use transparency
+;     cmp #$10
+;     bne not_transparent 
+;     lsr16_addr line_info+line_data::x1, 1
+;     lsr16_addr line_info+line_data::x2, 1
+;     ldx line_info+line_data::x1                 ; 3 cycles
+;     ; set the pixels
+;     loop_trans:
+;         lda VERA::DATA1 
+;         ora #$88
+;         sta VERA::DATA0
+;         inx                                     ; 2 cycles
+;         cpx line_info+line_data::x2             ; 3 cycles
+;         bcc loop_trans                          ; 2 cycles
+;     rts
+;     not_transparent:
 
-    ; *** if color < $10 then draw solid line
-    cmp #$10
-    jcc draw_line_solid
+;     ; *** if color < $10 then draw solid line
+;     cmp #$10
+;     jcc draw_line_solid
 
-    ; *** two pixel mode    
-    ; ldx polygon_info+polygon_data::color
-    ; lda color_lookup_hi,x
-    ; sta color_shifted
-    ; ora polygon_info+polygon_data::color
-    ; sta color
-    ; jsr setup_line ; todo: use macro instead for less cycles
-    ; lda color
-    ; lsr16_addr line_info+line_data::x1, 1
-    ; lsr16_addr line_info+line_data::x2, 1
-    ; ldx line_info+line_data::x1
-    ; line_loop:
-    ;     sta VERA::DATA0
-    ;     inx
-    ;     cpx line_info+line_data::x2
-    ;     bcc line_loop
-    ; rts
+;     ; *** two pixel mode    
+;     ; ldx polygon_info+polygon_data::color
+;     ; lda color_lookup_hi,x
+;     ; sta color_shifted
+;     ; ora polygon_info+polygon_data::color
+;     ; sta color
+;     ; jsr setup_line ; todo: use macro instead for less cycles
+;     ; lda color
+;     ; lsr16_addr line_info+line_data::x1, 1
+;     ; lsr16_addr line_info+line_data::x2, 1
+;     ; ldx line_info+line_data::x1
+;     ; line_loop:
+;     ;     sta VERA::DATA0
+;     ;     inx
+;     ;     cpx line_info+line_data::x2
+;     ;     bcc line_loop
+;     ; rts
 
-    end:
-    rts
-.endproc
+;     end:
+;     rts
+; .endproc
 
-.proc draw_line_solid
-    num_loops = vtemp
-    leading_mask = vtemp+1
-    trailing_mask = vtemp+2
+; .proc draw_line_solid
+;     num_loops = vtemp
+;     leading_mask = vtemp+1
+;     trailing_mask = vtemp+2
 
-    set_dcsel 2
-    lda #%01000000   ; set cache write enable
-    sta FX_CTRL
-    set_dcsel 6      ; set cache mode
+;     set_dcsel 2
+;     lda #%01000000   ; set cache write enable
+;     sta FX_CTRL
+;     set_dcsel 6      ; set cache mode
 
-    ; set 4 byte increment
-    lda VERA::ADDR+2
-    and #$01        ; mask out the low bit
-    ora #VERA::INC4 ; set port 0 auto increment to 4 bytes
-    sta VERA::ADDR+2
+;     ; set 4 byte increment
+;     lda VERA::ADDR+2
+;     and #$01        ; mask out the low bit
+;     ora #VERA::INC4 ; set port 0 auto increment to 4 bytes
+;     sta VERA::ADDR+2
 
-    ; set leading mask
-    lda line_info+line_data::x1
-    and #$07
-    tay
-    lda mask_leading,y
-    sta leading_mask
+;     ; set leading mask
+;     lda line_info+line_data::x1
+;     and #$07
+;     tay
+;     lda mask_leading,y
+;     sta leading_mask
 
-    ; set trailing mask
-    lda line_info+line_data::x2
-    and #$07
-    tay
-    lda mask_trailing,y
-    sta trailing_mask
+;     ; set trailing mask
+;     lda line_info+line_data::x2
+;     and #$07
+;     tay
+;     lda mask_trailing,y
+;     sta trailing_mask
 
-    ; calc start byte = x1 / 8
-    lsr16_addr line_info+line_data::x1, 3
+;     ; calc start byte = x1 / 8
+;     lsr16_addr line_info+line_data::x1, 3
 
-    ; calc end byte = x2 / 8
-    lsr16_addr line_info+line_data::x2, 3
+;     ; calc end byte = x2 / 8
+;     lsr16_addr line_info+line_data::x2, 3
 
-    ; if start byte == end byte, then draw a short line
-    lda line_info+line_data::x1
-    cmp line_info+line_data::x2
-    bne long_line
-    lda leading_mask
-    ora trailing_mask
-    sta VERA::DATA0
-    bra end_line
+;     ; if start byte == end byte, then draw a short line
+;     lda line_info+line_data::x1
+;     cmp line_info+line_data::x2
+;     bne long_line
+;     lda leading_mask
+;     ora trailing_mask
+;     sta VERA::DATA0
+;     bra end_line
 
-    long_line:
-    ; calc number of loops
+;     long_line:
+;     ; calc number of loops
+;     sec
+;     lda line_info+line_data::x2
+;     sbc line_info+line_data::x1
+;     dec
+;     sta num_loops
+
+;         ; draw leading mask
+;     lda leading_mask
+;     sta VERA::DATA0
+
+;     ldx num_loops
+;     beq no_middle
+;     line_loop:
+;         stz VERA::DATA0
+;         dex
+;         bne line_loop
+
+;     no_middle:
+;     ; draw trailing mask
+;     lda trailing_mask
+;     sta VERA::DATA0
+
+;     end_line:
+;     ; reset fx control
+;     set_dcsel 2
+;     stz FX_CTRL
+;     set_dcsel 0
+
+;     rts
+; .endproc
+
+; ; ---------------------------------------------------------------
+; ; Draw a pixel using the line_info struct
+; ; ---------------------------------------------------------------
+; .proc draw_pixel
+;     ; set control port 0
+;     stz VERA::CTRL
+
+;     ; set the address start
+;     lda state+engine::draw_page
+;     jsr set_addr_page
+
+;     ; set vera address to y*160
+;     ldy line_info+line_data::y1
+;     lda y160_lookup_lo,y
+;     clc
+;     adc VERA::ADDR
+;     sta VERA::ADDR
+;     lda y160_lookup_hi,y
+;     adc VERA::ADDR+1
+;     sta VERA::ADDR+1
+;     lda #0
+;     adc VERA::ADDR+2
+;     sta VERA::ADDR+2  
+;     ; now add x1/2 to the address
+;     lsr line_info+line_data::x1+1
+;     ror line_info+line_data::x1
+;     add16_addr VERA::ADDR, line_info+line_data::x1
+;     lda #0
+;     adc VERA::ADDR+2
+;     sta VERA::ADDR+2
+
+;     lda line_info+line_data::x1
+;     and #$01
+;     beq @even
+;     lda VERA::DATA0
+;     and #$F0
+;     ora line_info+line_data::color
+;     sta VERA::DATA0
+;     bra @done
+
+;     @even:
+;     ldx line_info+line_data::color
+;     lda color_lookup_hi,x
+;     sta vtemp
+;     lda VERA::DATA0
+;     and #$0F
+;     ora vtemp
+;     sta VERA::DATA0
+
+; @done:
+;     rts
+; .endproc
+
+.macro calc_slope xa, ya, xb, yb, slope
+.scope
+    ; Calculate dx = xb - xa (24-bit)
     sec
-    lda line_info+line_data::x2
-    sbc line_info+line_data::x1
-    dec
-    sta num_loops
+    lda xb
+    sbc xa
+    sta dx
+    lda #0
+    sbc #0
+    sta dx+1
+    ; extend sign if dx is negative
+    stz dx+2
+    lda dx+1
+    bpl @positive
+    lda #$FF
+    sta dx+2
+    @positive:
 
-        ; draw leading mask
-    lda leading_mask
-    sta VERA::DATA0
+    ; Calculate dy = yb - ya (24-bit)
+    lda yb
+    sec
+    sbc ya
+    sta dy
+    stz dy+1
+    stz dy+2
 
-    ldx num_loops
-    beq no_middle
-    line_loop:
-        stz VERA::DATA0
-        dex
-        bne line_loop
+    lda dy
+    beq @zero  ; if dy = 0, slope = 0
 
-    no_middle:
-    ; draw trailing mask
-    lda trailing_mask
-    sta VERA::DATA0
+    ; slope = ((dx << 9) / dy) >> 1
+    ; Shift dx left by 9 (24-bit shift)
+    lda dx+1
+    sta dx+2
+    lda dx
+    sta dx+1
+    stz dx
+    asl dx+1
+    rol dx+2
 
-    end_line:
-    ; reset fx control
-    set_dcsel 2
-    stz FX_CTRL
-    set_dcsel 0
+    ; Push dy onto the stack (divisor) for divide24
+    lda dy
+    pha
 
+    ; Load dx into A, X, Y for division
+    lda dx
+    ldx dx+1
+    ldy dx+2
+    jsr divide24  ; 24-bit / 8-bit division
+
+    ; Result is now in A (low) and X (high)
+    sta slope
+    stx slope+1
+    cpx #$80        ; Check for negative result and set carry bit
+    ror slope+1     ; rotate sign bit into high byte
+    ror slope       ; slope = slope >> 1
+    bra @finish
+
+@zero:
+    stz slope
+    stz slope+1
+@finish:
+.endscope
+.endmacro
+
+.proc draw_quad
+    height = dy
+    fill_length = vtemp
+
+    ; if top_left > top_right then swap
+    lda quad_info+quad_data::top_left
+    cmp quad_info+quad_data::top_right
+    bcc :+
+    lda quad_info+quad_data::top_left
+    sta vtemp
+    lda quad_info+quad_data::top_right
+    sta quad_info+quad_data::top_left
+    lda vtemp
+    sta quad_info+quad_data::top_right
+    :
+
+    ; if bottom_left > bottom_right then swap
+    lda quad_info+quad_data::bottom_left
+    cmp quad_info+quad_data::bottom_right
+    bcc :+
+    lda quad_info+quad_data::bottom_left
+    sta vtemp
+    lda quad_info+quad_data::bottom_right
+    sta quad_info+quad_data::bottom_left
+    lda vtemp
+    sta quad_info+quad_data::bottom_right
+    :
+
+    ; calculate slopes
+    calc_slope quad_info+quad_data::top_left, quad_info+quad_data::top_y, quad_info+quad_data::bottom_left, quad_info+quad_data::bottom_y, quad_info+quad_data::left_slope
+    calc_slope quad_info+quad_data::top_right, quad_info+quad_data::top_y, quad_info+quad_data::bottom_right, quad_info+quad_data::bottom_y, quad_info+quad_data::right_slope
+
+    ; set the left and right edges, and y start
+    add16_addr quad_info+quad_data::top_left, topleftX
+    add16_addr quad_info+quad_data::top_right, topleftX
+    add16_addr quad_info+quad_data::top_y, topleftY
+    add16_addr quad_info+quad_data::bottom_left, topleftX
+    add16_addr quad_info+quad_data::bottom_right, topleftX
+    add16_addr quad_info+quad_data::bottom_y, topleftY
+
+    ; *** Boundary Checks
+    ; if top_y < 0 then top_y = 0
+    lda quad_info+quad_data::top_y+1
+    bpl :+
+    stz quad_info+quad_data::top_y
+    stz quad_info+quad_data::top_y+1
+    :
+
+    ; if top_left < 0 then top_left = 0
+    lda quad_info+quad_data::top_left+1
+    bpl :+
+    stz quad_info+quad_data::top_left
+    stz quad_info+quad_data::top_left+1
+    :
+
+    ; if bottom_left < 0 then bottom_left = 0
+    lda quad_info+quad_data::bottom_left+1
+    bpl :+
+    stz quad_info+quad_data::bottom_left
+    stz quad_info+quad_data::bottom_left+1
+    :
+
+    ; if top_left > 319 then return
+    lda quad_info+quad_data::top_left+1
+    cmp #0
+    beq :+
+    lda quad_info+quad_data::top_left
+    cmp #<SCREEN_WIDTH
+    bcc :+
     rts
-.endproc
+    :
 
-; ---------------------------------------------------------------
-; Draw a pixel using the line_info struct
-; ---------------------------------------------------------------
-.proc draw_pixel
-    ; set control port 0
-    stz VERA::CTRL
+    ; if top_right < 0 then return
+    lda quad_info+quad_data::top_right+1
+    bpl :+
+    rts
+    :
 
-    ; set the address start
+    ; if top_right > 319 then top_right = 319
+    lda quad_info+quad_data::top_right+1
+    cmp #0
+    beq :+
+    lda quad_info+quad_data::top_right
+    cmp #<SCREEN_WIDTH
+    bcc :+
+    lda #<(SCREEN_WIDTH - 1)
+    sta quad_info+quad_data::top_right
+    lda #>(SCREEN_WIDTH - 1)
+    sta quad_info+quad_data::top_right+1
+    :
+
+    ; if bottom_right > 319 then bottom_right = 319 
+    lda quad_info+quad_data::bottom_right+1
+    cmp #0
+    beq :+
+    lda quad_info+quad_data::bottom_right
+    cmp #<SCREEN_WIDTH
+    bcc :+
+    lda #<(SCREEN_WIDTH - 1)
+    sta quad_info+quad_data::bottom_right
+    lda #>(SCREEN_WIDTH - 1)
+    sta quad_info+quad_data::bottom_right+1
+    :
+    
+    ; if bottom_y > 199 then bottom_y = 199
+    lda quad_info+quad_data::bottom_y+1
+    cmp #0
+    beq :+
+    lda quad_info+quad_data::bottom_y
+    cmp #<SCREEN_HEIGHT
+    bcc :+
+    lda #<(SCREEN_HEIGHT - 1)
+    sta quad_info+quad_data::bottom_y
+    lda #>(SCREEN_HEIGHT - 1)
+    sta quad_info+quad_data::bottom_y+1
+    :
+
+    ; *** set starting VERA ADDR Y
+    set_dcsel 2 ; auto sets port to 0 too
     lda state+engine::draw_page
     jsr set_addr_page
-
-    ; set vera address to y*160
-    ldy line_info+line_data::y1
-    lda y160_lookup_lo,y
-    clc
+    ldx quad_info+quad_data::top_y
+    lda y160_lookup_lo,x
     adc VERA::ADDR
     sta VERA::ADDR
-    lda y160_lookup_hi,y
+    lda y160_lookup_hi,x
     adc VERA::ADDR+1
     sta VERA::ADDR+1
     lda #0
     adc VERA::ADDR+2
-    sta VERA::ADDR+2  
-    ; now add x1/2 to the address
-    lsr line_info+line_data::x1+1
-    ror line_info+line_data::x1
-    add16_addr VERA::ADDR, line_info+line_data::x1
-    lda #0
-    adc VERA::ADDR+2
+    sta VERA::ADDR+2
+    
+    ; set the address increment to +160
+    lda VERA::ADDR+2
+    and #$0F
+    ora #VERA::INC160
     sta VERA::ADDR+2
 
-    lda line_info+line_data::x1
-    and #$01
-    beq @even
-    lda VERA::DATA0
-    and #$F0
-    ora line_info+line_data::color
-    sta VERA::DATA0
-    bra @done
+    ; *** Enter polygon filler mode
+    lda #($02 | $04) ; $02 = Polygon mode, $04 = 4-bit mode
+    sta FX_CTRL
 
-    @even:
-    ldx line_info+line_data::color
-    lda color_lookup_hi,x
-    sta vtemp
-    lda VERA::DATA0
+    ; *** set left and right slope ; todo: can write directly to register instead of using variables
+    set_dcsel 3
+    lda quad_info+quad_data::left_slope
+    sta FX_X_INCR_L
+    lda quad_info+quad_data::left_slope+1
+    and #$7F
+    sta FX_X_INCR_H
+    lda quad_info+quad_data::right_slope
+    sta FX_Y_INCR_L
+    lda quad_info+quad_data::right_slope+1
+    and #$7F
+    sta FX_Y_INCR_H
+
+    ; ** set the left and right edges
+    set_dcsel 4
+    lda quad_info+quad_data::top_left
+    sta FX_X_POS_L
+    lda quad_info+quad_data::top_left+1
+    sta FX_X_POS_H
+    lda quad_info+quad_data::top_right
+    sta FX_Y_POS_L
+    lda quad_info+quad_data::top_right+1
+    sta FX_Y_POS_H
+
+    ; *** set ADDR1 increment
+    lda VERA::CTRL
+    ora #1
+    sta VERA::CTRL
+
+    lda VERA::ADDR+2
     and #$0F
-    ora vtemp
-    sta VERA::DATA0
+    ora #$04    ; set increment to nibble
+    sta VERA::ADDR+2
 
-@done:
+    ; ; *** fill the (triangle)
+    ; set_dcsel 6
+    ; lda quad_info+quad_data::color
+    ; sta FX_CACHE_L
+    ; sta FX_CACHE_M
+    ; sta FX_CACHE_H
+    ; sta FX_CACHE_U
+
+    ; ; enable cache writing
+    ; set_dcsel 2
+    ; lda #%01001110
+    ; sta FX_CTRL
+
+    ; poly fill length mode
+    set_dcsel 5
+
+    ; setup color
+    ldy quad_info+quad_data::color
+    lda color_lookup_shifted,y
+    sta quad_info+quad_data::color
+
+    ; set height
+    ldy height
+    loop:
+        ldx VERA::DATA1
+        lda FX_POLY_FILL_L
+        lsr
+        and #$07
+        sta fill_length
+        lda FX_POLY_FILL_H
+        asl
+        asl
+        ora fill_length
+        sta fill_length
+
+        ldx fill_length
+        beq next_line   ; if length = 0, then go to next line
+
+        fill_loop:
+            lda quad_info+quad_data::color
+            sta VERA::DATA1
+            dex
+            bne fill_loop
+        
+        next_line:
+        lda VERA::DATA0
+
+        dey
+        bne loop
+
+    set_dcsel 0
+
     rts
 .endproc

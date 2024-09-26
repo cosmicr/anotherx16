@@ -39,11 +39,10 @@
     num_children:   .res 1
     topleftX:       .res 2
     topleftY:       .res 2
-    current_index:  .res 1
-    prev_index:     .res 1
+    left_index:     .res 1
+    right_index:    .res 1
     num_vertices:   .res 1
-    pbank:          .res 1
-    line_info:      .tag line_data
+    quad_info:      .tag quad_data
 
 .segment "DATA"
     polygon_info:       .tag polygon_data
@@ -289,7 +288,6 @@ stp
 ; Prerequisites: polygon data is set up
 ; ---------------------------------------------------------------
 .proc draw_polygon
-    max_y = current_index
     ; *** topleftX = center_x - width/2
     lda polygon_info+polygon_data::width 
     lsr
@@ -313,133 +311,98 @@ stp
     sbc #0
     sta topleftY+1  ; topleftXY = y_val - height/2
 
-    ; *** if num vertices is 4 and height < 2
-    lda polygon_info+polygon_data::num_vertices
-    cmp #4
-    jne start
-    lda polygon_info+polygon_data::height
-    cmp #2
-    jcs start
-    lda topleftX
-    sta line_info+line_data::x1
-    lda topleftX+1
-    sta line_info+line_data::x1+1
-    lda topleftX
-    clc
-    adc polygon_info+polygon_data::width
-    sta line_info+line_data::x2
-    lda topleftX+1
-    adc #0
-    sta line_info+line_data::x2+1
-    lda topleftY
-    sta line_info+line_data::y1
-    ; if width is > 1, draw a line
-    lda polygon_info+polygon_data::width
-    cmp #1
-    bcs line
-    ; else draw a pixel
-    jmp draw_pixel
+    ; ; *** if num vertices is 4 and height < 2
+    ; lda polygon_info+polygon_data::num_vertices
+    ; cmp #4
+    ; jne start
+    ; lda polygon_info+polygon_data::height
+    ; cmp #2
+    ; jcs start
+    ; lda topleftX
+    ; sta line_info+line_data::x1
+    ; lda topleftX+1
+    ; sta line_info+line_data::x1+1
+    ; lda topleftX
+    ; clc
+    ; adc polygon_info+polygon_data::width
+    ; sta line_info+line_data::x2
+    ; lda topleftX+1
+    ; adc #0
+    ; sta line_info+line_data::x2+1
+    ; lda topleftY
+    ; sta line_info+line_data::y1
+    ; ; if width is > 1, draw a line
+    ; lda polygon_info+polygon_data::width
+    ; cmp #1
+    ; bcs line
+    ; ; else draw a pixel
+    ; jmp draw_pixel
     
-    line:
-        jmp draw_line    
+    ; line:
+    ;     jmp draw_line    
 
     start:
-        ; *** init edge_table
-        jsr init_edge_table
+    lda polygon_info+polygon_data::color
+    sta quad_info+quad_data::color
+    ; *** init indices
+    lda polygon_info+polygon_data::num_vertices
+    dec
+    asl
+    sta left_index ; left_index = num_vertices - 1 * 2; start at the last vertex
+    stz right_index ; right_index = 0
+    ; vertices are in clockwise order, starting at top right
+    ; *** loop through each left and right vertex until the last pair
 
-        ; *** rasterize edges using bresenham's line algorithm
-        lda polygon_info+polygon_data::num_vertices
-        dec
-        asl
-        sta prev_index ; prev_index = num_vertices - 1 * 2; start at the last vertex
-        stz current_index ; current_index = 0
-        raster_loop:    ; *** vertices are in clockwise order, starting top-right
-            ; while current_index < num_vertices
-            lda current_index
-            lsr
-            cmp polygon_info+polygon_data::num_vertices
-            beq done_raster
+    vertex_loop:
+        stz quad_info+quad_data::top_left+1
+        stz quad_info+quad_data::top_right+1
+        stz quad_info+quad_data::bottom_left+1
+        stz quad_info+quad_data::bottom_right+1
+        stz quad_info+quad_data::top_y+1
+        stz quad_info+quad_data::bottom_y+1
 
-            ldy prev_index
-            lda polygon_info+polygon_data::vertices,y
-            sta x1
-            lda polygon_info+polygon_data::vertices+1,y
-            sta y1
+        ; top right - 0
+        ldy right_index
+        lda polygon_info+polygon_data::vertices,y
+        sta quad_info+quad_data::top_right
 
-            ldy current_index
-            lda polygon_info+polygon_data::vertices,y
-            sta x2
-            lda polygon_info+polygon_data::vertices+1,y
-            sta y2
+        ; top y 1
+        lda polygon_info+polygon_data::vertices+1,y
+        sta quad_info+quad_data::top_y
 
-            jsr rasterize_edge
+        inc right_index
+        inc right_index
 
-            lda current_index
-            sta prev_index
-            inc current_index
-            inc current_index
-            bra raster_loop
+        ; bottom right 2
+        ldy right_index
+        lda polygon_info+polygon_data::vertices,y
+        sta quad_info+quad_data::bottom_right
 
-        done_raster:
-        ; temp test
+        ; bottom y 3
+        lda polygon_info+polygon_data::vertices+1,y
+        sta quad_info+quad_data::bottom_y
 
-        ; fill the cache
-        set_dcsel 2
-        lda #%00100000   ; set cache write enable
-        sta FX_CTRL
+        ; top left - 6
+        ldy left_index 
+        lda polygon_info+polygon_data::vertices,y
+        sta quad_info+quad_data::top_left
 
-        set_dcsel 6      ; set cache write mode
-        ldx polygon_info+polygon_data::color
-        lda color_lookup_shifted,x
-        sta FX_CACHE_L
-        sta FX_CACHE_M
-        sta FX_CACHE_H
-        sta FX_CACHE_U
+        dec left_index
+        dec left_index
+        
+        ; bottom left 4
+        ldy left_index
+        lda polygon_info+polygon_data::vertices,y
+        sta quad_info+quad_data::bottom_left
 
-        set_dcsel 2
-        stz FX_CTRL
-        set_dcsel 0
+        ; draw the quad
+        jsr draw_quad
 
-        ; *** draw horizontal lines between min_x and max_x for each y
-        ldy polygon_info+polygon_data::num_vertices ; is half length of vertices
-        lda polygon_info+polygon_data::vertices+1,y ; the middle y value is max_y
-        sta max_y
-        ldy polygon_info+polygon_data::vertices+1 ; first y value is min_y
-        tya ; copy Y value to A
-        clc
-        adc topleftY
-        sta line_info+line_data::y1
-        draw_loop:        
-            lda edge_table_left,y
-            sta line_info+line_data::x1
-            stz line_info+line_data::x1+1
-            lda edge_table_right,y
-            sta line_info+line_data::x2
-            stz line_info+line_data::x2+1
+        ; only continue if there's more vertices to process
+        lda polygon_info+polygon_data::num_vertices ; number is half length of vertices
+        cmp left_index ; if left_index has met the middle, then we're done
+        jne vertex_loop
 
-            ; todo: instead of adding for each line, 
-            ;       the edgetable could be 16-bit and add before calculating?
-            add16_addr line_info+line_data::x1, topleftX
-            bpl x1_positive
-            stz line_info+line_data::x1
-            stz line_info+line_data::x1+1 ; if x1 < 0, set to 0
-            x1_positive:
-
-            add16_addr line_info+line_data::x2, topleftX
-            bpl x2_positive
-            stz line_info+line_data::x2
-            stz line_info+line_data::x2+1 ; if x2 < 0, set to 0
-            x2_positive:
-
-            phy
-            jsr draw_line 
-            ply
-
-            inc line_info+line_data::y1
-
-            iny
-            cpy max_y
-            bne draw_loop
     finish:
     rts
 .endproc

@@ -26,7 +26,7 @@
 
 ; todo: clean up zeropage variables
 .segment "ZEROPAGE"
-    work:   .res 24
+    work:   .res 10
     temp:   .res 4
     read:   .res 6
     mtemp:  .res 1

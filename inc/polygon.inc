@@ -5,7 +5,8 @@
 
 .global parse_polygon
 .global polygon_info
-.globalzp x1, y1, x2, y2, x3, y3, x4, y4, line_info
+.globalzp x1, y1, x2, y2, x3, y3, x4, y4, line_info, quad_info
+.globalzp topleftX, topleftY
 
 .struct polygon_data
     offset          .word
@@ -25,6 +26,18 @@
     x2              .word
     y1              .byte
     color           .byte
+.endstruct
+
+.struct quad_data
+    top_left        .word
+    top_right       .word
+    bottom_left     .word
+    bottom_right    .word
+    top_y           .word
+    bottom_y        .word
+    color           .byte
+    left_slope      .word
+    right_slope     .word
 .endstruct
 
 
