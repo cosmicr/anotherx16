@@ -342,8 +342,6 @@ stp
     ;     jmp draw_line    
 
     start:
-    lda polygon_info+polygon_data::color
-    sta quad_info+quad_data::color
     ; *** init indices
     lda polygon_info+polygon_data::num_vertices
     dec
@@ -351,8 +349,7 @@ stp
     sta left_index ; left_index = num_vertices - 1 * 2; start at the last vertex
     stz right_index ; right_index = 0
     ; vertices are in clockwise order, starting at top right
-    ; *** loop through each left and right vertex until the last pair
-
+    ; *** loop through each left and right vertex until the last pairy
     vertex_loop:
         stz quad_info+quad_data::top_left+1
         stz quad_info+quad_data::top_right+1
@@ -404,146 +401,6 @@ stp
         jne vertex_loop
 
     finish:
-    rts
-.endproc
-
-; ---------------------------------------------------------------
-; Initialize the edge table left with $FF and right with $00
-; ---------------------------------------------------------------
-.proc init_edge_table
-    ldx #201
-    lda #$FF
-    @loop:
-        dex
-        sta edge_table_left,x
-        stz edge_table_right,x
-        bne @loop
-
-    rts
-.endproc
-
-; ---------------------------------------------------------------
-; Rasterize an edge using Bresenham's line algorithm
-; ---------------------------------------------------------------
-.proc rasterize_edge
-    x_inc = sx
-    y_inc = sy
-
-    ; *** check for horizontal line
-    abs dy, y1, y2
-    bne not_horizontal
-    ldx x1
-    cpx x2
-    bcc horizontal_loop
-    lda x2
-    stx x2
-    sta x1
-    horizontal_loop:
-        jsr update_edge_table
-        inc x1
-        lda x1
-        cmp x2
-        bcc horizontal_loop
-    rts
-    not_horizontal:
-
-    ; *** check for vertical line
-    abs dx, x1, x2
-    bne not_vertical
-    ldx y1
-    cpx y2
-    bcc vertical_loop
-    lda y2
-    stx y2
-    sta y1
-    vertical_loop:
-        jsr update_edge_table
-        inc y1
-        lda y1
-        cmp y2
-        bcc vertical_loop
-        beq vertical_loop
-    rts
-    not_vertical:
-
-    ; todo: there is one more optimisation here to be had
-    ;       instead of setting x_inc and y_inc, do separate code sections that use inc and dec
-    ;       probably only a fraction faster
-    ;    x_inc = 1 if x2 >= x1 else -1
-    lda #1
-    ldx x2
-    cpx x1
-    bcs :+
-    lda #$FF
-    :
-    sta x_inc
-
-    ;    y_inc = 1 if y2 >= y1 else -1
-    lda #1
-    ldx y2
-    cpx y1
-    bcs :+
-    lda #$FF
-    :
-    sta y_inc
-
-    cmp_le dx, dy, inc_y
-
-    ; *** dx loop
-    ;lda dx
-    lsr
-    sta err ; err = dx / 2
-    dx_loop:
-        jsr update_edge_table
-        add_addr x1, x_inc
-        sub_addr err, dy
-        bcs :+
-        add_addr y1, y_inc
-        add_addr err, dx
-        :
-        lda x1
-        cmp x2
-        bne dx_loop
-    rts
-    
-    ; *** dy loop
-    inc_y:
-    lda dy
-    lsr
-    sta err ; err = dy / 2
-    dy_loop:
-        jsr update_edge_table
-        add_addr y1, y_inc
-        sub_addr err, dx
-        bcs :+
-        add_addr x1, x_inc
-        add_addr err, dy
-        :
-        lda y1
-        cmp y2
-        bne dy_loop
-    rts
-.endproc
-
-; ---------------------------------------------------------------
-; Update the edge table
-; ---------------------------------------------------------------
-.proc update_edge_table
-    ldx y1
-    cpx #(199) ; hard coded to 200
-    bcs done
-
-    lda x1
-    cmp edge_table_left,x
-    bcs skip_min_x  ; x1 is higher or equal
-    sta edge_table_left,x
-skip_min_x:
-
-    cmp edge_table_right,x
-    bcc done        ; x1 is lower
-    sta edge_table_right,x
-
-done:
     rts
 .endproc
 

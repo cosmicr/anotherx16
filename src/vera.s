@@ -441,7 +441,7 @@ set_addr_page_3:
 
     ; todo: use 4 lookup tables instead of adding from one
     ; add Y offset to address
-    ldy line_info+line_data::y1
+    ldy quad_info+quad_data::top_y
     lda y160_lookup_lo,y
     clc
     adc VERA::ADDR
@@ -454,10 +454,10 @@ set_addr_page_3:
     sta VERA::ADDR+2    ; y * 160
 
     ; x1 divided by 2
-    lda line_info+line_data::x1+1
+    lda quad_info+quad_data::top_left+1
     lsr
     sta vtemp+1                     ; save high byte
-    lda line_info+line_data::x1
+    lda quad_info+quad_data::top_left
     ror
     clc
     adc VERA::ADDR
@@ -796,25 +796,29 @@ set_addr_page_3:
     lda quad_info+quad_data::top_left
     cmp quad_info+quad_data::top_right
     bcc :+
-    lda quad_info+quad_data::top_left
-    sta vtemp
-    lda quad_info+quad_data::top_right
-    sta quad_info+quad_data::top_left
-    lda vtemp
-    sta quad_info+quad_data::top_right
+    swap quad_info+quad_data::top_left, quad_info+quad_data::top_right
     :
 
     ; if bottom_left > bottom_right then swap
     lda quad_info+quad_data::bottom_left
     cmp quad_info+quad_data::bottom_right
     bcc :+
-    lda quad_info+quad_data::bottom_left
-    sta vtemp
-    lda quad_info+quad_data::bottom_right
-    sta quad_info+quad_data::bottom_left
-    lda vtemp
-    sta quad_info+quad_data::bottom_right
+    swap quad_info+quad_data::bottom_left, quad_info+quad_data::bottom_right
     :
+
+    lda polygon_info+polygon_data::color
+    ; *** if color == $11 then copy
+    cmp #$11
+    bne not_copy
+    ; todo: copy
+    rts
+    not_copy:
+    ; *** if color == $10 then transparent
+    cmp #$10
+    bne not_transparent
+    ; todo: transparent
+    rts
+    not_transparent:
 
     ; calculate slopes
     calc_slope quad_info+quad_data::top_left, quad_info+quad_data::top_y, quad_info+quad_data::bottom_left, quad_info+quad_data::bottom_y, quad_info+quad_data::left_slope
@@ -824,9 +828,6 @@ set_addr_page_3:
     add16_addr quad_info+quad_data::top_left, topleftX
     add16_addr quad_info+quad_data::top_right, topleftX
     add16_addr quad_info+quad_data::top_y, topleftY
-    add16_addr quad_info+quad_data::bottom_left, topleftX
-    add16_addr quad_info+quad_data::bottom_right, topleftX
-    add16_addr quad_info+quad_data::bottom_y, topleftY
 
     ; *** Boundary Checks
     ; if top_y < 0 then top_y = 0
@@ -843,16 +844,14 @@ set_addr_page_3:
     stz quad_info+quad_data::top_left+1
     :
 
-    ; if bottom_left < 0 then bottom_left = 0
-    lda quad_info+quad_data::bottom_left+1
+    ; if top_right < 0 then return
+    lda quad_info+quad_data::top_right+1
     bpl :+
-    stz quad_info+quad_data::bottom_left
-    stz quad_info+quad_data::bottom_left+1
+    rts
     :
 
     ; if top_left > 319 then return
     lda quad_info+quad_data::top_left+1
-    cmp #0
     beq :+
     lda quad_info+quad_data::top_left
     cmp #<SCREEN_WIDTH
@@ -860,15 +859,8 @@ set_addr_page_3:
     rts
     :
 
-    ; if top_right < 0 then return
-    lda quad_info+quad_data::top_right+1
-    bpl :+
-    rts
-    :
-
     ; if top_right > 319 then top_right = 319
     lda quad_info+quad_data::top_right+1
-    cmp #0
     beq :+
     lda quad_info+quad_data::top_right
     cmp #<SCREEN_WIDTH
@@ -877,32 +869,6 @@ set_addr_page_3:
     sta quad_info+quad_data::top_right
     lda #>(SCREEN_WIDTH - 1)
     sta quad_info+quad_data::top_right+1
-    :
-
-    ; if bottom_right > 319 then bottom_right = 319 
-    lda quad_info+quad_data::bottom_right+1
-    cmp #0
-    beq :+
-    lda quad_info+quad_data::bottom_right
-    cmp #<SCREEN_WIDTH
-    bcc :+
-    lda #<(SCREEN_WIDTH - 1)
-    sta quad_info+quad_data::bottom_right
-    lda #>(SCREEN_WIDTH - 1)
-    sta quad_info+quad_data::bottom_right+1
-    :
-    
-    ; if bottom_y > 199 then bottom_y = 199
-    lda quad_info+quad_data::bottom_y+1
-    cmp #0
-    beq :+
-    lda quad_info+quad_data::bottom_y
-    cmp #<SCREEN_HEIGHT
-    bcc :+
-    lda #<(SCREEN_HEIGHT - 1)
-    sta quad_info+quad_data::bottom_y
-    lda #>(SCREEN_HEIGHT - 1)
-    sta quad_info+quad_data::bottom_y+1
     :
 
     ; *** set starting VERA ADDR Y
@@ -942,16 +908,18 @@ set_addr_page_3:
     lda quad_info+quad_data::right_slope+1
     and #$7F
     sta FX_Y_INCR_H
-
+stp
     ; ** set the left and right edges
     set_dcsel 4
     lda quad_info+quad_data::top_left
     sta FX_X_POS_L
     lda quad_info+quad_data::top_left+1
+    and #$07
     sta FX_X_POS_H
     lda quad_info+quad_data::top_right
     sta FX_Y_POS_L
     lda quad_info+quad_data::top_right+1
+    and #$07
     sta FX_Y_POS_H
 
     ; *** set ADDR1 increment
@@ -981,23 +949,26 @@ set_addr_page_3:
     set_dcsel 5
 
     ; setup color
-    ldy quad_info+quad_data::color
+    ldy polygon_info+polygon_data::color
     lda color_lookup_shifted,y
     sta quad_info+quad_data::color
 
     ; set height
     ldy height
     loop:
-        ldx VERA::DATA1
+        ldx VERA::DATA1 ; adds x to current row in addr0, increments, and saves addr1
         lda FX_POLY_FILL_L
+        sta vtemp
         lsr
         and #$07
         sta fill_length
+        bbs7 vtemp, skip_high
         lda FX_POLY_FILL_H
         asl
         asl
         ora fill_length
         sta fill_length
+        skip_high:
 
         ldx fill_length
         beq next_line   ; if length = 0, then go to next line
@@ -1009,7 +980,7 @@ set_addr_page_3:
             bne fill_loop
         
         next_line:
-        lda VERA::DATA0
+        lda VERA::DATA0 ; increments row in addr0
 
         dey
         bne loop
