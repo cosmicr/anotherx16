@@ -435,7 +435,7 @@ set_addr_page_3:
 
     ; set the address start
     lda state+engine::draw_page
-    jsr set_addr_page   ; todo: integrate y lookup into this routine
+    jsr set_addr_page
 
     ; todo: use 4 lookup tables instead of adding from one
     ; add Y offset to address
@@ -532,10 +532,38 @@ set_addr_page_3:
     lda polygon_info+polygon_data::color
 
     ; todo: break out into separate functions and check color before calling
-    ; *** if color == $11 then copy
+    ; *** if color == $11 then copy from page 0 to current page
+    ; todo: clean up copy code
     cmp #$11
     bne not_copy
+    ; lda state+engine::draw_page
+    ; bne :+
+    ; rts
+    ; :
+    ; set VERA::DATA1 to page 0
+    lda #1
+    sta VERA::CTRL
+    ldy line_info+line_data::y1
+    lda y160_lookup_lo,y
+    sta VERA::ADDR
+    lda y160_lookup_hi,y
+    sta VERA::ADDR+1
+    lda VERA::ADDR+2
+    and #$FE
+    sta VERA::ADDR+2
     lsr16_addr line_info+line_data::x1, 1
+    clc
+    lda line_info+line_data::x1
+    adc VERA::ADDR
+    sta VERA::ADDR
+    lda #0
+    adc VERA::ADDR+1
+    sta VERA::ADDR+1
+    lda #0
+    adc VERA::ADDR+2
+    sta VERA::ADDR+2    ; y * 160 + x1/2
+    stz VERA::CTRL
+
     lsr16_addr line_info+line_data::x2, 1
     ldx line_info+line_data::x1                 ; 3 cycles
     ; set the pixels
@@ -544,7 +572,7 @@ set_addr_page_3:
         sta VERA::DATA0
         inx                                     ; 2 cycles
         cpx line_info+line_data::x2             ; 3 cycles
-        bcc loop_trans 
+        bcc loop_copy 
     rts
     not_copy:
 

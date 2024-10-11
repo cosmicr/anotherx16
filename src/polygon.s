@@ -313,6 +313,23 @@ stp
     sbc #0
     sta topleftY+1  ; topleftXY = y_val - height/2
 
+        ; fill the cache
+        set_dcsel 2
+        lda #%00100000   ; set cache write enable
+        sta FX_CTRL
+
+        set_dcsel 6      ; set cache write mode
+        ldx polygon_info+polygon_data::color
+        lda color_lookup_shifted,x
+        sta FX_CACHE_L
+        sta FX_CACHE_M
+        sta FX_CACHE_H
+        sta FX_CACHE_U
+
+        set_dcsel 2
+        stz FX_CTRL
+        set_dcsel 0
+
     ; *** if num vertices is 4 and height < 2
     lda polygon_info+polygon_data::num_vertices
     cmp #4
@@ -382,23 +399,6 @@ stp
 
         done_raster:
         ; temp test
-
-        ; fill the cache
-        set_dcsel 2
-        lda #%00100000   ; set cache write enable
-        sta FX_CTRL
-
-        set_dcsel 6      ; set cache write mode
-        ldx polygon_info+polygon_data::color
-        lda color_lookup_shifted,x
-        sta FX_CACHE_L
-        sta FX_CACHE_M
-        sta FX_CACHE_H
-        sta FX_CACHE_U
-
-        set_dcsel 2
-        stz FX_CTRL
-        set_dcsel 0
 
         ; *** draw horizontal lines between min_x and max_x for each y
         ldy polygon_info+polygon_data::num_vertices ; is half length of vertices

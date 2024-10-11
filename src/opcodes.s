@@ -512,11 +512,11 @@ jump_table:
 ; ---------------------------------------------------------------
 .proc opcode_0C_CCTRL
     start = otemp
-    end = work+1
-    state = work+2
-    task_ptr = work+3
+    end = work+2
+    state = work+3
+    task_ptr = work+4
 ; TODO: Optimise this function
-stp
+
     jsr read_script_byte
     sta start
     jsr read_script_byte
@@ -526,13 +526,19 @@ stp
 
     lda start
     sta task_ptr
+    stz task_ptr+1
 
     lda state
     cmp #2
     bne set_state
-
     kill_tasks:
+    lda task_ptr
     kill_loop:
+        cmp end
+        bcc :+
+        beq :+
+        bra kill_end
+        :
         pha
         mulx16 task_ptr, .sizeof(task)
         add16 task_ptr, tasks
@@ -546,14 +552,18 @@ stp
         inc
         sta task_ptr
         stz task_ptr+1
-        cmp end
-        bcs :+
         bra kill_loop
-    :
+    kill_end:
     rts
 
     set_state:
+    lda task_ptr
     state_loop:
+        cmp end
+        bcc :+
+        beq :+
+        bra state_end
+        :
         pha
         mulx16 task_ptr, .sizeof(task)
         add16 task_ptr, tasks
@@ -564,10 +574,8 @@ stp
         inc
         sta task_ptr
         stz task_ptr+1
-        cmp end
-        bcs :+
         bra state_loop
-    :
+    state_end:
     rts
 .endproc
 

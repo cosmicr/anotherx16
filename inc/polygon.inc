@@ -16,7 +16,7 @@
     width           .byte
     height          .byte
     num_vertices    .byte
-    vertices        .res 128
+    vertices        .res 256
     polygons        .word
 .endstruct
 
