@@ -48,6 +48,7 @@
     lda #1
     stz debug_mode
 
+    ; jsr unpack_data
     jsr init_vera
     jsr init_resources
     jsr init_engine

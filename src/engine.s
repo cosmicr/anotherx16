@@ -16,7 +16,7 @@
 .include "text.inc"
 .include "macros.inc"
 
-.segment "DATA"
+.segment "BSS"
     state:   .res .sizeof(engine)
     tasks:   .res .sizeof(task) * MAX_TASKS
 
@@ -88,7 +88,7 @@
         bne clear_task_loop
 
     stz state+engine::part
-    lda #1
+    lda #2
     sta state+engine::next_part
 
     stz text_length ; clear text buffer length
@@ -142,6 +142,12 @@
 ; A: part number
 ; ---------------------------------------------------------------
 .proc set_part
+    ldx #RESOURCE_BANK_START
+    stx next_bank
+    stz next_offset
+    stz next_offset+1
+    stz next_offset+2
+    stz next_offset+3
     sta state+engine::part
     asl
     asl ; get the offset into the part_resources table

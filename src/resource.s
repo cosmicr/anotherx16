@@ -17,10 +17,12 @@
 .segment "DATA"
     next_bank:              .byte RESOURCE_BANK_START
     next_offset:            .byte 0, 0, 0, 0
-    resource_table:         .res MAX_RESOURCES * .sizeof(resource)
     resource_filename:      .asciiz "data"  ; "bank" for compressed data
                             .res 2
-                            
+
+.segment "BSS"
+    resource_table:         .res MAX_RESOURCES * .sizeof(resource)
+
 .segment "RODATA"
     str_error_invalid_resource_num: .asciiz "invalid resource number"
     str_error_memlist_bin:          .asciiz "error opening memlist.bin"
@@ -89,11 +91,11 @@
     ldx #0 ; low byte of index
     ldy #0 ; high byte of index
     @read_loop:
-        phx
-        phy
+        ; phx
+        ; phy
         jsr ACPTR ; get a byte from the file
-        ply
-        plx
+        ; ply
+        ; plx
         sta (work),y ; store the byte in resource_table
         iny
         cpy #.sizeof(resource)
@@ -227,7 +229,7 @@
         sta work+1
         dex
         bne @table_loop
-        
+
     ; check if resource is already loaded
     ldy #resource::status
     lda (work),y

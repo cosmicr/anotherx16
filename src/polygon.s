@@ -45,7 +45,7 @@
     pbank:          .res 1
     line_info:      .tag line_data
 
-.segment "DATA"
+.segment "BSS"
     polygon_info:       .tag polygon_data
     edge_table_left:    .res (2*200)
     edge_table_right:   .res (2*200)

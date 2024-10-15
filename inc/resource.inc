@@ -4,7 +4,7 @@
 ; ---------------------------------------------------------------
 
 .global init_resources, load_resource
-.global resource_table
+.global resource_table, next_offset, next_bank
 
 MAX_RESOURCES = 146
 RESOURCE_BANK_START = $02
