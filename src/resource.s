@@ -235,12 +235,6 @@
     lda (work),y
     jne resource_loaded
 
-    ; if rtype is less than 2 then skip sound and music for now
-    ; ldy #resource::rtype
-    ; lda (work),y
-    ; cmp #2
-    ; jcc resource_loaded ; todo: do we need to set return ptr to null?
-
     ; save the current bank to the resource ; todo: probably not necessary
     ldy #resource::rank
     lda next_bank
@@ -275,6 +269,7 @@
     ldy #resource::status
     lda #1
     sta (work),y
+    ; update the location of the resource
     ldy #resource::pointer
     lda next_offset
     sta (work),y
@@ -308,8 +303,8 @@
     sta next_offset+3
     ;    next_offset -= BANK_RAM_SIZE; ; high byte & $1f = size%8192
     ;    next_bank++; 
-    stz next_offset+2
-    stz next_offset+3
+    ; stz next_offset+2
+    ; stz next_offset+3
     lda $00
     sta next_bank
 

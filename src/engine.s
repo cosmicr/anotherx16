@@ -88,7 +88,7 @@
         bne clear_task_loop
 
     stz state+engine::part
-    lda #2
+    lda #1
     sta state+engine::next_part
 
     stz text_length ; clear text buffer length

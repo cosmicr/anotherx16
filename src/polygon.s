@@ -31,7 +31,7 @@
     sy:             .res 1
     err:            .res 2
     e2:             .res 2
-    ztemp:          .res 3
+    ztemp:          .res 2
     setup:          .res 1
     resource:       .res 2
     nx:             .res 2
@@ -42,8 +42,8 @@
     current_index:  .res 1
     prev_index:     .res 1
     num_vertices:   .res 1
-    pbank:          .res 1
     line_info:      .tag line_data
+    ptemp:          .res 2
 
 .segment "BSS"
     polygon_info:       .tag polygon_data
@@ -105,9 +105,15 @@
     ; if setup is less than $C0 then it's a group polygon
     lda setup
     cmp #$C0
-    jcc group_polygon
+    bcs single_polygon
+    ; it's a group polygon
+    and #$3F
+    cmp #2
+    jne finish
+    jmp parse_polygon_group
 
     ; *** single polygon ***
+    single_polygon:
     lda polygon_info+polygon_data::color
     bpl @skip_color ; bit #$80
     lda setup
@@ -149,15 +155,7 @@
 
     jmp draw_polygon
 
-    group_polygon:
-    lda setup
-    and #$3F
-    cmp #2
-    bne @finish
-
-    jmp parse_polygon_group
-
-    @finish:
+    finish:
     rts
 .endproc
 
@@ -290,6 +288,7 @@ stp
 ; ---------------------------------------------------------------
 .proc draw_polygon
     max_y = current_index
+;stp
     ; *** topleftX = center_x - width/2
     lda polygon_info+polygon_data::width 
     lsr
@@ -350,6 +349,8 @@ stp
     sta line_info+line_data::x2+1
     lda topleftY
     sta line_info+line_data::y1
+    lda topleftY+1
+    sta line_info+line_data::y1+1
     ; if width is > 1, draw a line
     lda polygon_info+polygon_data::width
     cmp #1
@@ -405,10 +406,14 @@ stp
         lda polygon_info+polygon_data::vertices+1,y ; the middle y value is max_y
         sta max_y
         ldy polygon_info+polygon_data::vertices+1 ; first y value is min_y
+        ; now start is in Y register, and end is max_y
         tya ; copy Y value to A
         clc
         adc topleftY
         sta line_info+line_data::y1
+        lda line_info+line_data::y1+1
+        adc topleftY+1
+        sta line_info+line_data::y1+1
         draw_loop:        
             lda edge_table_left,y
             sta line_info+line_data::x1
@@ -435,10 +440,12 @@ stp
             jsr draw_line 
             ply
 
-            inc line_info+line_data::y1
+            ; TODO: may not need 16-bit Y after all
+            inc16 line_info+line_data::y1
 
             iny
             cpy max_y
+
             bne draw_loop
     finish:
     rts

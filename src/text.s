@@ -16,7 +16,7 @@
 .include "engine.inc"
 .include "tasks.inc"
 
-.segment "DATA"
+.segment "BSS"
     text:   .res 256
     text_length: .res 1
 

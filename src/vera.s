@@ -492,6 +492,19 @@ set_addr_page_3:
     color = vtemp+3
     x2_minus_8 = vtemp+4
     x2_minus_2 = vtemp+6
+
+    ; *** if y > 199 then return
+    lda line_info+line_data::y1+1
+    cmp #$FF
+    bne y_ok
+    rts
+    y_ok:
+    lda line_info+line_data::y1
+    cmp #<SCREEN_HEIGHT
+    bcc :+
+    rts
+    :
+
     
     ; note: despite this not being optimal, it's faster than the optimised because there are so many values higher than 320
     ; *** if x1 > 319 then return (16-bit)
@@ -520,11 +533,6 @@ set_addr_page_3:
     lda #>(SCREEN_WIDTH - 1)
     sta line_info+line_data::x2+1
     x2_ok:
-
-    ; *** if y > 199 then return
-    cmp_lt line_info+line_data::y1, #(SCREEN_HEIGHT - 1), y_ok
-    rts
-    y_ok:
 
     ; macro
     setup_line 

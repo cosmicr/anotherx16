@@ -15,6 +15,10 @@
     color           .byte
     width           .byte
     height          .byte
+    bx1             .byte
+    by1             .byte
+    bx2             .byte
+    by2             .byte
     num_vertices    .byte
     vertices        .res 256
     polygons        .word
@@ -23,7 +27,7 @@
 .struct line_data
     x1              .word
     x2              .word
-    y1              .byte
+    y1              .word
     color           .byte
 .endstruct
 

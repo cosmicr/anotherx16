@@ -18,6 +18,7 @@
 .include "opcodes.inc"
 .include "macros.inc"
 .include "vera.inc"
+.include "sample.inc"
 
 .segment "ZEROPAGE"
     otemp: .res 2
@@ -516,7 +517,7 @@ jump_table:
     state = work+3
     task_ptr = work+4
 ; TODO: Optimise this function
-
+stp
     jsr read_script_byte
     sta start
     jsr read_script_byte
@@ -834,7 +835,7 @@ stp
     num = otemp
     freq = work+2
     volume = work+3
-    channel = work+4
+    channel = stemp+2
     jsr read_script_byte
     sta num+1
     jsr read_script_byte
@@ -844,10 +845,17 @@ stp
     sta freq
 
     jsr read_script_byte
+    lsr_a 4
     sta volume
 
     jsr read_script_byte
     sta channel
+
+    lda num
+    ldx freq
+    ldy volume
+
+    jsr play_sample
 
     rts
 .endproc
