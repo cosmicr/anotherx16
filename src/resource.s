@@ -12,14 +12,16 @@
 ; Project includes
 .include "main.inc"
 .include "resource.inc"
+.include "macros.inc"
 
 .segment "DATA"
     next_bank:              .byte RESOURCE_BANK_START
     next_offset:            .byte 0, 0, 0, 0
-    resource_table:         .res MAX_RESOURCES * .sizeof(resource)
     resource_filename:      .asciiz "data"  ; "bank" for compressed data
                             .res 2
 
+.segment "BSS"
+    resource_table:         .res MAX_RESOURCES * .sizeof(resource)
 
 .segment "RODATA"
     str_error_invalid_resource_num: .asciiz "invalid resource number"
@@ -77,7 +79,8 @@
     ldx #8 ; device
     ldy #0 ; secondary address = CBM_READ
     jsr OPEN
-    jcs error ; error opening file ; todo: this is not how to check for errors
+    jsr READST
+    jne error ; error opening file
     ldx #1 ; file #1
     jsr CHKIN ; set input channel
 
@@ -89,11 +92,11 @@
     ldx #0 ; low byte of index
     ldy #0 ; high byte of index
     @read_loop:
-        phx
-        phy
+        ; phx
+        ; phy
         jsr ACPTR ; get a byte from the file
-        ply
-        plx
+        ; ply
+        ; plx
         sta (work),y ; store the byte in resource_table
         iny
         cpy #.sizeof(resource)
@@ -201,7 +204,7 @@
     sta resource_filename + 5
     stz resource_filename + 6
     pla
-    jmp get_offset
+    jra get_offset
     nibble_to_hex:
         cmp #10
         bcc @digit
@@ -227,19 +230,13 @@
         sta work+1
         dex
         bne @table_loop
-        
+
     ; check if resource is already loaded
     ldy #resource::status
     lda (work),y
     jne resource_loaded
 
-    ; if rtype is less than 2 then skip sound and music for now
-    ldy #resource::rtype
-    lda (work),y
-    cmp #2
-    jcc resource_loaded ; todo: do we need to set return ptr to null?
-
-    ; save the current bank to the resource
+    ; save the current bank to the resource ; probably not necessary
     ldy #resource::rank
     lda next_bank
     sta (work),y
@@ -273,6 +270,7 @@
     ldy #resource::status
     lda #1
     sta (work),y
+    ; update the location of the resource
     ldy #resource::pointer
     lda next_offset
     sta (work),y
@@ -306,8 +304,8 @@
     sta next_offset+3
     ;    next_offset -= BANK_RAM_SIZE; ; high byte & $1f = size%8192
     ;    next_bank++; 
-    stz next_offset+2
-    stz next_offset+3
+    ; stz next_offset+2
+    ; stz next_offset+3
     lda $00
     sta next_bank
 

@@ -1,7 +1,7 @@
 ; ---------------------------------------------------------------
-; main.inc
+; debug.inc
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
 
-.globalzp work, temp, read, mtemp, flag
-.global frame_counter
+.global last_opcode
+.global debug_mode, debug_step

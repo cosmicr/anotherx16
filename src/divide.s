@@ -12,6 +12,7 @@
 ; Project includes
 .include "main.inc"
 .include "divide.inc"
+.include "macros.inc"
 
 .segment "DATA"
     dtemp:   .res 16
@@ -111,6 +112,10 @@ divide_by_zero:
     ptemp = dtemp + 9
     sign = dtemp + 10
 
+    ; Clear the quotient
+    stz quotient
+    stz quotient+1
+
     ; Get the dividend
     sta dividend
     stx dividend+1
@@ -167,7 +172,7 @@ divide_by_zero:
     stz remainder+2
 
     ldx #24     ; 24 bits in dividend
-@divloop:
+divloop:
     asl dividend
     rol dividend+1
     rol dividend+2
@@ -184,17 +189,17 @@ divide_by_zero:
     sta ptemp
     lda remainder+2
     sbc #0
-    bcc @no_sub     ; if carry is 0 then divisor doesn't fit
+    bcc no_sub     ; if carry is 0 then divisor doesn't fit
 
     sta remainder+2
     lda ptemp
     sta remainder+1
     sty remainder
-    inc quotient
+    inc16 quotient
 
-@no_sub:
+no_sub:
     dex
-    bne @divloop
+    bne divloop
 
     ; Adjust quotient for signed division if needed
     lda sign

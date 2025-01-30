@@ -1,13 +1,13 @@
 ; ---------------------------------------------------------------
-; vera.inc
+; resource.inc
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
 
 .global init_resources, load_resource
-.global resource_table
+.global resource_table, next_offset, next_bank
 
 MAX_RESOURCES = 146
-RESOURCE_BANK_START = $1B
+RESOURCE_BANK_START = $02
 
 .struct resource
     status          .res 1

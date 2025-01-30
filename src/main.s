@@ -14,6 +14,10 @@
 .include "engine.inc"
 .include "tasks.inc"
 .include "macros.inc"
+.include "text.inc"
+.include "debug.inc"
+.include "polygon.inc"
+.include "sample.inc"
 
 .segment "STARTUP"
 
@@ -21,17 +25,31 @@
 
 .segment "ONCE"
 
+; todo: clean up zeropage variables
 .segment "ZEROPAGE"
     work:   .res 24
     temp:   .res 4
-    read:   .res 4
+    read:   .res 6
+    mtemp:  .res 2
+    flag:   .res 1
+
+.segment "DATA"
+    frame_counter: .res 2
 
 .segment "CODE"
 
 ; ---------------------------------------------------------------
 ; Main program
 ; ---------------------------------------------------------------
+
+    ; debugging stuff
+    stz frame_counter
+    stz frame_counter+1
+    stz flag
+
+    ; jsr unpack_data
     jsr init_vera
+    jsr init_irq  ; for audio
     jsr init_resources
     jsr init_engine
     jsr init_game
@@ -39,9 +57,10 @@
     ; GAME LOOP
     @loop:
         jsr run_tasks
-        jmp @loop
+        bra @loop
     
 exit:
+    jsr remove_irq
     jsr RESTOR
     jsr CINT
     rts
