@@ -22,7 +22,7 @@
 
 ; todo: clean up zero page variables
 .segment "ZEROPAGE"
-    vtemp:              .res 8
+    vtemp:              .byte 0,0,0,0,0,0,0,0
 
 .segment "RODATA"
     y160_lookup_lo: ; clamped at 200
@@ -106,7 +106,7 @@
     sta VERA::L1::CONFIG
 
     ; Enable layer 0 (only) put CX16 into VGA mode
-    lda #(VERA::DISP::ENABLE::LAYER0 | VERA::DISP::MODE::VGA)
+    lda #(VERA::DISP::ENABLE::LAYER0 |VERA::DISP::MODE::VGA)
     sta VERA::DISP::VIDEO
 
     ; Set the screen resolution 
@@ -495,17 +495,28 @@ set_addr_page_3:
 
     ; *** if y > 199 then return
     lda line_info+line_data::y1+1
-    cmp #$FF
-    bne y_ok
+    beq :+
     rts
-    y_ok:
+    :
     lda line_info+line_data::y1
     cmp #<SCREEN_HEIGHT
     bcc :+
     rts
     :
 
+    ; *** if x1 < 0 then x1 = 0
+    lda line_info+line_data::x1+1
+    bpl x1_not_neg
+    stz line_info+line_data::x1
+    stz line_info+line_data::x1+1
+    x1_not_neg:
     
+    ; *** if x2 < 0 then return
+    lda line_info+line_data::x2+1
+    bpl x2_not_neg
+    rts
+    x2_not_neg:
+   
     ; note: despite this not being optimal, it's faster than the optimised because there are so many values higher than 320
     ; *** if x1 > 319 then return (16-bit)
     lda line_info+line_data::x1+1

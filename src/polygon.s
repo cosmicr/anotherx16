@@ -20,37 +20,46 @@
 .include "polygon.inc"
 
 .segment "ZEROPAGE"
-    poly_ptr:       .res 3
-    x1:             .res 2
-    y1:             .res 1
-    x2:             .res 2
-    y2:             .res 1
-    dx:             .res 1
-    dy:             .res 1
-    sx:             .res 1
-    sy:             .res 1
-    err:            .res 2
-    e2:             .res 2
-    ztemp:          .res 2
-    setup:          .res 1
-    resource:       .res 2
-    nx:             .res 2
-    ny:             .res 2
-    num_children:   .res 1
-    topleftX:       .res 2
-    topleftY:       .res 2
-    current_index:  .res 1
-    prev_index:     .res 1
-    num_vertices:   .res 1
-    line_info:      .tag line_data
-    ptemp:          .res 2
+    line_info:      .tag line_data  ; for storing line data for drawing
+    ztemp:          .res 2          ; temporary storage for multiply_zoom
+    num_children:   .res 1          ; number of children in a group polygon
+    poly_ptr:       .res 3          ; pointer to polygon data in memory when parsing
+    resource:       .res 2          ; resource memlist pointer for polygon data   
+        
+    ; Rasterizer variables
+    left_edge:              .res 2
+    left_dx:                .res 2
+    right_edge:             .res 2
+    right_dx:               .res 2
+    left_error:             .res 2
+    right_error:            .res 2
 
 .segment "BSS"
-    polygon_info:       .tag polygon_data
-    edge_table_left:    .res (2*200)
-    edge_table_right:   .res (2*200)
-    counter:            .res 1
-    off:                .res 2
+    polygon_info:   .tag polygon_data   ; for storing polygon data
+    counter:        .res 1              ; counter for reading vertices
+    off:            .res 2              ; offset for group polygon
+    setup:          .res 1              ; setup byte for polygon
+    nx:             .res 2              ; x value for group polygon
+    ny:             .res 2              ; y value for group polygon
+    cx:             .res 2          ; x value for child polygon
+    cy:             .res 2          ; y value for child polygon
+
+    ; Rasterizer variables
+    count:                  .res 1
+    seg_height:             .res 2
+    half_width:             .res 1
+    half_height:            .res 1
+    origin:                 .tag POINT ; 4 bytes
+    left_index:             .res 1
+    right_index:            .res 1
+    left_index_next:        .res 1
+    right_index_next:       .res 1
+    left_dx_neg:            .res 1
+    right_dx_neg:           .res 1
+    y_top:                  .res 2
+    y_bottom:               .res 2
+
+.segment "RODATA"
 
 .segment "CODE"
 
@@ -62,23 +71,27 @@
     inc24 poly_ptr
 .endmacro
 
+.macro get_vertex_x num, addr
+    ldx num
+    lda polygon_info+polygon_data::vx,x
+    sta addr
+    lda polygon_info+polygon_data::vx+1,x
+    sta addr+1
+.endmacro
+
+.macro get_vertex_y num, addr
+    ldx num
+    lda polygon_info+polygon_data::vy,x
+    sta addr
+    lda polygon_info+polygon_data::vy+1,x
+    sta addr+1
+.endmacro
+
 ; ---------------------------------------------------------------
 ; Parse polygon info and call draw_polygon
 ; Preliminaries must be set from opcode call
 ; ---------------------------------------------------------------
 .proc parse_polygon
-; debug C942
-;stz flag
-; lda polygon_info+polygon_data::offset
-; cmp #$ea
-; bne :+
-; lda polygon_info+polygon_data::offset+1
-; cmp #$88
-; bne :+
-; lda #1
-; sta flag
-; :   ; end debug
-
     ; get the location in memory for the polygon data
     lda polygon_info+polygon_data::polygons
     sta resource
@@ -125,32 +138,40 @@
     read_polygon_byte
     jsr multiply_zoom
     sta polygon_info+polygon_data::width
+    stx polygon_info+polygon_data::width+1
 
     read_polygon_byte
     jsr multiply_zoom
     sta polygon_info+polygon_data::height
+    stx polygon_info+polygon_data::height+1
 
     read_polygon_byte
     sta polygon_info+polygon_data::num_vertices
     asl
     sta counter    ; counter = num_vertices * 2
-    
+
     ; *** read the data into the array
-    ldx #0
+    ldy #0
     vertex_loop:
-        phx
+        phy
         read_polygon_byte
         jsr multiply_zoom
-        plx
-        sta polygon_info+polygon_data::vertices,x ; x value
-        inx
-        phx
+        ply
+        sta polygon_info+polygon_data::vx,y ; x value
+        txa
+        sta polygon_info+polygon_data::vx+1,y
+
+        phy
         read_polygon_byte
         jsr multiply_zoom
-        plx
-        sta polygon_info+polygon_data::vertices,x ; y value
-        inx
-        cpx counter
+        ply
+        sta polygon_info+polygon_data::vy,y ; y value
+        txa
+        sta polygon_info+polygon_data::vy+1,y
+
+        iny
+        iny
+        cpy counter
         jne vertex_loop
 
     jmp draw_polygon
@@ -164,15 +185,11 @@
 ; Preliminaries must be set
 ; ---------------------------------------------------------------
 .proc parse_polygon_group
-    cx = nx
-    cy = ny
-
     read_polygon_byte
     jsr multiply_zoom
     sta nx
     stx nx+1
     sub16_addr polygon_info+polygon_data::center_x, nx ; x_val = x_val - nx
-
     read_polygon_byte
     jsr multiply_zoom
     sta ny
@@ -189,7 +206,7 @@
         read_polygon_byte
         sta off+1
         read_polygon_byte
-        sta off             ; off = read_word
+        sta off             ; off = read_word child_offset
 
         read_polygon_byte
         jsr multiply_zoom
@@ -202,22 +219,13 @@
         stx cy+1
 
         ; save the polygon_data
-        lda num_children
-        pha
-        lda polygon_info+polygon_data::width
-        pha
-        lda polygon_info+polygon_data::height
-        pha        
-        lda polygon_info+polygon_data::zoom
-        pha
-        lda polygon_info+polygon_data::center_x
-        pha
-        lda polygon_info+polygon_data::center_x+1
-        pha
-        lda polygon_info+polygon_data::center_y
-        pha
-        lda polygon_info+polygon_data::center_y+1
-        pha
+        push num_children
+        push16 polygon_info+polygon_data::width
+        push16 polygon_info+polygon_data::height
+        push polygon_info+polygon_data::zoom
+        push16 polygon_info+polygon_data::center_x
+        push16 polygon_info+polygon_data::center_y
+
         add16_addr polygon_info+polygon_data::center_x, cx
         add16_addr polygon_info+polygon_data::center_y, cy
 
@@ -229,9 +237,9 @@
         and #$7F
         sta polygon_info+polygon_data::color
         inc24 poly_ptr
-        
         skip_color:
-        asl16_addr off, 1
+
+        asl16_addr off, 1 ; child off = off * 2 
 
         lda off
         sta polygon_info+polygon_data::offset
@@ -245,10 +253,7 @@
         pha
         lda poly_ptr+2
         pha
-lda flag
-beq @cont
-stp
-@cont:
+
         jsr parse_polygon
 
         ; restore the offset
@@ -259,335 +264,18 @@ stp
         pla
         sta poly_ptr
 
-        pla
-        sta polygon_info+polygon_data::center_y+1
-        pla
-        sta polygon_info+polygon_data::center_y
-        pla
-        sta polygon_info+polygon_data::center_x+1
-        pla
-        sta polygon_info+polygon_data::center_x
-        pla 
-        sta polygon_info+polygon_data::zoom
-        pla
-        sta polygon_info+polygon_data::height
-        pla
-        sta polygon_info+polygon_data::width
-        pla
-        sta num_children
+        ; restore the polygon_data
+        pop16 polygon_info+polygon_data::center_y
+        pop16 polygon_info+polygon_data::center_x
+        pop polygon_info+polygon_data::zoom
+        pop16 polygon_info+polygon_data::height
+        pop16 polygon_info+polygon_data::width
+        pop num_children
+
         plx
         inx
         cpx num_children
         jne child_loop
-    rts
-.endproc
-
-; ---------------------------------------------------------------
-; Draw a polygon
-; Prerequisites: polygon data is set up
-; ---------------------------------------------------------------
-.proc draw_polygon
-    max_y = current_index
-;stp
-    ; *** topleftX = center_x - width/2
-    lda polygon_info+polygon_data::width 
-    lsr
-    sta topleftX    ; topleftX = polygon::width >> 1
-    sec
-    lda polygon_info+polygon_data::center_x
-    sbc topleftX
-    sta topleftX
-    lda polygon_info+polygon_data::center_x+1
-    sbc #0
-    sta topleftX+1  ; topleftX = center_x - width/2
-    ; *** topleftY = y_val - height/2
-    lda polygon_info+polygon_data::height
-    lsr
-    sta topleftY    ; topleftY = polygon::height >> 1
-    sec
-    lda polygon_info+polygon_data::center_y
-    sbc topleftY
-    sta topleftY
-    lda polygon_info+polygon_data::center_y+1
-    sbc #0
-    sta topleftY+1  ; topleftXY = y_val - height/2
-
-        ; fill the cache
-        set_dcsel 2
-        lda #%00100000   ; set cache write enable
-        sta FX_CTRL
-
-        set_dcsel 6      ; set cache write mode
-        ldx polygon_info+polygon_data::color
-        lda color_lookup_shifted,x
-        sta FX_CACHE_L
-        sta FX_CACHE_M
-        sta FX_CACHE_H
-        sta FX_CACHE_U
-
-        set_dcsel 2
-        stz FX_CTRL
-        set_dcsel 0
-
-    ; *** if num vertices is 4 and height < 2
-    lda polygon_info+polygon_data::num_vertices
-    cmp #4
-    jne start
-    lda polygon_info+polygon_data::height
-    cmp #2
-    jcs start
-    lda topleftX
-    sta line_info+line_data::x1
-    lda topleftX+1
-    sta line_info+line_data::x1+1
-    lda topleftX
-    clc
-    adc polygon_info+polygon_data::width
-    sta line_info+line_data::x2
-    lda topleftX+1
-    adc #0
-    sta line_info+line_data::x2+1
-    lda topleftY
-    sta line_info+line_data::y1
-    lda topleftY+1
-    sta line_info+line_data::y1+1
-    ; if width is > 1, draw a line
-    lda polygon_info+polygon_data::width
-    cmp #1
-    bcs line
-    ; else draw a pixel
-    jmp draw_pixel
-    
-    line:
-        jmp draw_line    
-
-    start:
-        ; *** init edge_table
-        jsr init_edge_table
-
-        ; *** rasterize edges using bresenham's line algorithm
-        lda polygon_info+polygon_data::num_vertices
-        dec
-        asl
-        sta prev_index ; prev_index = num_vertices - 1 * 2; start at the last vertex
-        stz current_index ; current_index = 0
-        raster_loop:    ; *** vertices are in clockwise order, starting top-right
-            ; while current_index < num_vertices
-            lda current_index
-            lsr
-            cmp polygon_info+polygon_data::num_vertices
-            beq done_raster
-
-            ldy prev_index
-            lda polygon_info+polygon_data::vertices,y
-            sta x1
-            lda polygon_info+polygon_data::vertices+1,y
-            sta y1
-
-            ldy current_index
-            lda polygon_info+polygon_data::vertices,y
-            sta x2
-            lda polygon_info+polygon_data::vertices+1,y
-            sta y2
-
-            jsr rasterize_edge
-
-            lda current_index
-            sta prev_index
-            inc current_index
-            inc current_index
-            bra raster_loop
-
-        done_raster:
-        ; temp test
-
-        ; *** draw horizontal lines between min_x and max_x for each y
-        ldy polygon_info+polygon_data::num_vertices ; is half length of vertices
-        lda polygon_info+polygon_data::vertices+1,y ; the middle y value is max_y
-        sta max_y
-        ldy polygon_info+polygon_data::vertices+1 ; first y value is min_y
-        ; now start is in Y register, and end is max_y
-        tya ; copy Y value to A
-        clc
-        adc topleftY
-        sta line_info+line_data::y1
-        lda line_info+line_data::y1+1
-        adc topleftY+1
-        sta line_info+line_data::y1+1
-        draw_loop:        
-            lda edge_table_left,y
-            sta line_info+line_data::x1
-            stz line_info+line_data::x1+1
-            lda edge_table_right,y
-            sta line_info+line_data::x2
-            stz line_info+line_data::x2+1
-
-            ; todo: instead of adding for each line, 
-            ;       the edgetable could be 16-bit and add before calculating?
-            add16_addr line_info+line_data::x1, topleftX
-            bpl x1_positive
-            stz line_info+line_data::x1
-            stz line_info+line_data::x1+1 ; if x1 < 0, set to 0
-            x1_positive:
-
-            add16_addr line_info+line_data::x2, topleftX
-            bpl x2_positive
-            stz line_info+line_data::x2
-            stz line_info+line_data::x2+1 ; if x2 < 0, set to 0
-            x2_positive:
-
-            phy
-            jsr draw_line 
-            ply
-
-            ; TODO: may not need 16-bit Y after all
-            inc16 line_info+line_data::y1
-
-            iny
-            cpy max_y
-
-            bne draw_loop
-    finish:
-    rts
-.endproc
-
-; ---------------------------------------------------------------
-; Initialize the edge table left with $FF and right with $00
-; ---------------------------------------------------------------
-.proc init_edge_table
-    ldx #201
-    lda #$FF
-    @loop:
-        dex
-        sta edge_table_left,x
-        stz edge_table_right,x
-        bne @loop
-
-    rts
-.endproc
-
-; ---------------------------------------------------------------
-; Rasterize an edge using Bresenham's line algorithm
-; ---------------------------------------------------------------
-.proc rasterize_edge
-    x_inc = sx
-    y_inc = sy
-
-    ; *** check for horizontal line
-    abs dy, y1, y2
-    bne not_horizontal
-    ldx x1
-    cpx x2
-    bcc horizontal_loop
-    lda x2
-    stx x2
-    sta x1
-    horizontal_loop:
-        jsr update_edge_table
-        inc x1
-        lda x1
-        cmp x2
-        bcc horizontal_loop
-    rts
-    not_horizontal:
-
-    ; *** check for vertical line
-    abs dx, x1, x2
-    bne not_vertical
-    ldx y1
-    cpx y2
-    bcc vertical_loop
-    lda y2
-    stx y2
-    sta y1
-    vertical_loop:
-        jsr update_edge_table
-        inc y1
-        lda y1
-        cmp y2
-        bcc vertical_loop
-        beq vertical_loop
-    rts
-    not_vertical:
-
-    ; todo: there is one more optimisation here to be had
-    ;       instead of setting x_inc and y_inc, do separate code sections that use inc and dec
-    ;       probably only a fraction faster
-    ;    x_inc = 1 if x2 >= x1 else -1
-    lda #1
-    ldx x2
-    cpx x1
-    bcs :+
-    lda #$FF
-    :
-    sta x_inc
-
-    ;    y_inc = 1 if y2 >= y1 else -1
-    lda #1
-    ldx y2
-    cpx y1
-    bcs :+
-    lda #$FF
-    :
-    sta y_inc
-
-    cmp_le dx, dy, inc_y
-
-    ; *** dx loop
-    ;lda dx
-    lsr
-    sta err ; err = dx / 2
-    dx_loop:
-        jsr update_edge_table
-        add_addr x1, x_inc
-        sub_addr err, dy
-        bcs :+
-        add_addr y1, y_inc
-        add_addr err, dx
-        :
-        lda x1
-        cmp x2
-        bne dx_loop
-    rts
-    
-    ; *** dy loop
-    inc_y:
-    lda dy
-    lsr
-    sta err ; err = dy / 2
-    dy_loop:
-        jsr update_edge_table
-        add_addr y1, y_inc
-        sub_addr err, dx
-        bcs :+
-        add_addr x1, x_inc
-        add_addr err, dy
-        :
-        lda y1
-        cmp y2
-        bne dy_loop
-    rts
-.endproc
-
-; ---------------------------------------------------------------
-; Update the edge table
-; ---------------------------------------------------------------
-.proc update_edge_table
-    ldx y1
-    cpx #(199) ; hard coded to 200
-    bcs done
-
-    lda x1
-    cmp edge_table_left,x
-    bcs skip_min_x  ; x1 is higher or equal
-    sta edge_table_left,x
-skip_min_x:
-
-    cmp edge_table_right,x
-    bcc done        ; x1 is lower
-    sta edge_table_right,x
-
-done:
     rts
 .endproc
 
@@ -626,7 +314,316 @@ done:
     
     rts
 
-no_zoom:
-    ldx #00         ; Set high byte to 0 since no multiplication occurred
+    no_zoom:
+        ldx #00         ; Set high byte to 0 since no multiplication occurred
+        rts
+.endproc
+
+; ---------------------------------------------------------------
+; Draw a polygon
+; ---------------------------------------------------------------
+.proc draw_polygon
+    ; *** calculate half width and half height
+    lda polygon_info+polygon_data::width+1
+    lsr
+    lda polygon_info+polygon_data::width
+    ror
+    sta half_width    ; store half width
+
+    lda polygon_info+polygon_data::height+1
+    lsr
+    lda polygon_info+polygon_data::height
+    ror
+    sta half_height    ; store half height
+
+    ; *** Load center coordinates 
+    lda polygon_info+polygon_data::center_x
+    sta origin+POINT::x_val
+    lda polygon_info+polygon_data::center_x+1
+    sta origin+POINT::x_val+1
+
+    ; *** Calculate origin top left
+    sec
+    lda origin+POINT::x_val
+    sbc half_width
+    sta origin+POINT::x_val
+    lda origin+POINT::x_val+1
+    sbc #0
+    sta origin+POINT::x_val+1   ; left side
+
+    ; *** Calculate top edge
+    lda polygon_info+polygon_data::center_y
+    sta origin+POINT::y_val
+    lda polygon_info+polygon_data::center_y+1
+    sta origin+POINT::y_val+1
+    sec
+    lda origin+POINT::y_val
+    sbc half_height
+    sta origin+POINT::y_val
+    lda origin+POINT::y_val+1
+    sbc #0
+    sta origin+POINT::y_val+1   ; top edge
+
+    ; *** Setup color and VERA FX cache
+    set_dcsel 2
+    lda #%00100000   ; set cache write enable
+    sta FX_CTRL
+
+    set_dcsel 6      ; set cache write mode
+    ldx polygon_info+polygon_data::color
+    lda color_lookup_shifted,x
+    sta FX_CACHE_L
+    sta FX_CACHE_M
+    sta FX_CACHE_H
+    sta FX_CACHE_U
+
+    set_dcsel 2
+    stz FX_CTRL
+    set_dcsel 0
+
+    ; *** Initialize vertex tracking
+    ; *** THE VERTICES ARE CLOCKWISE, SO LEFT IS THE LAST VERTEX
+    ; index points to a value X or Y, not a vertex
+    stz right_index     ; Start with first vertex for RIGHT edge
+    lda polygon_info+polygon_data::num_vertices
+    asl
+    sec
+    sbc #2               ; Last vertex index for LEFT edge
+    sta left_index
+    lda polygon_info+polygon_data::num_vertices
+    lsr ; divide by 2
+    sta count            ; Total vertices to process
+
+    ; *** loop through segments ***
+    next_segment:
+        ; Early exit if no vertices
+        lda count
+        jeq done           ; Exit if count = 0
+
+        ; Get left edge start vertex
+        get_vertex_x left_index, left_edge
+        get_vertex_y left_index, y_top
+        
+        ; Get left edge end vertex
+        lda left_index
+        sec
+        sbc #2              ; Point to prev index (next vertex)
+        sta left_index_next      ; Store for next vertex access
+        get_vertex_x left_index_next, left_dx ; left_dx = next_x
+        get_vertex_y left_index_next, y_bottom
+        
+        ; Calculate left dx and direction
+        sec
+        lda left_dx
+        sbc left_edge        ; dx = next_x - current_x
+        sta left_dx
+        ; sta left_error
+        lda left_dx+1
+        sbc left_edge+1
+        sta left_dx+1
+        ; sta left_error+1
+        
+        stz left_dx_neg     ; Assume positive direction
+        
+        ; Make left dx positive if needed
+        bit left_dx+1           ; BIT sets N to bit 7 of the byte
+        bpl left_dx_positive    ; if N is clear, then dx is positive
+        sec                     ; Negate dx to make it positive temporarily
+        lda #0
+        sbc left_dx
+        sta left_dx
+        ; sta left_error
+        lda #0
+        sbc left_dx+1
+        sta left_dx+1
+        ; sta left_error+1
+        lda #1             ; Mark as negative
+        sta left_dx_neg
+
+    left_dx_positive:
+        ; Get right edge vertices
+        get_vertex_x right_index, right_edge
+        
+        lda right_index
+        clc
+        adc #2                      ; Point to previous vertex
+        sta right_index_next        ; Store for next vertex access
+        get_vertex_x right_index_next, right_dx ; right_dx = prev_x
+        
+        ; Calculate right dx and direction
+        sec
+        lda right_dx
+        sbc right_edge       ; dx = prev_x - current_x
+        sta right_dx
+        ; sta right_error
+        lda right_dx+1
+        sbc right_edge+1
+        sta right_dx+1
+        ; sta right_error+1
+        
+        stz right_dx_neg    ; Assume positive direction
+        
+        ; Make right dx positive if needed
+        bit right_dx+1      ; Check sign
+        bpl right_dx_positive
+        sec                 ; Negate dx
+        lda #0
+        sbc right_dx
+        sta right_dx
+        ; sta right_error
+        lda #0
+        sbc right_dx+1
+        sta right_dx+1
+        ; sta right_error+1
+        lda #1             ; Mark as negative
+        sta right_dx_neg
+
+    right_dx_positive:
+        ; Calculate height of segment
+        sec
+        lda y_bottom
+        sbc y_top
+        sta seg_height
+        lda y_bottom+1
+        sbc y_top+1
+        sta seg_height+1
+        
+        ; If height is negative (y_bottom < y_top) or zero, skip segment
+        ; lda seg_height     ; Load low byte
+        ; ora seg_height+1   ; OR with high byte
+        ; jeq segment_done   ; Branch if zero ; todo: draw a horizontal line instead
+        ; bit seg_height+1   
+        ; jmi segment_done   ; Branch if negative
+
+        ; Initialize error terms ; todo: would it be faster if they started at dy/2 or similar?
+        stz left_error
+        stz left_error+1
+        stz right_error
+        stz right_error+1
+
+        ; Setup starting Y for line_info (with offset)
+        lda y_top
+        clc
+        adc origin+POINT::y_val            ; Add Y offset
+        sta line_info+line_data::y1
+        lda y_top+1
+        adc origin+POINT::y_val+1
+        sta line_info+line_data::y1+1 
+
+        ; Add origin X offset to left and right edges
+        clc
+        lda left_edge
+        adc origin+POINT::x_val            ; Add X offset for left edge
+        sta left_edge
+        lda left_edge+1
+        adc origin+POINT::x_val+1
+        sta left_edge+1
+        clc
+        lda right_edge
+        adc origin+POINT::x_val            ; Add X offset for right edge
+        sta right_edge
+        lda right_edge+1
+        adc origin+POINT::x_val+1
+        sta right_edge+1
+
+        ; *** Scanline loop ***
+        scanline_loop:
+            lda y_top           ; Check if reached end of segment
+            cmp y_bottom
+            jcs segment_done
+       
+            ; Draw the horizontal line
+            lda left_edge
+            sta line_info+line_data::x1
+            lda left_edge+1
+            sta line_info+line_data::x1+1
+            lda right_edge
+            sta line_info+line_data::x2
+            lda right_edge+1
+            sta line_info+line_data::x2+1
+            jsr draw_line
+            
+            ; Update left edge position
+            clc
+            lda left_error
+            adc left_dx
+            sta left_error
+            lda left_error+1
+            adc left_dx+1
+            sta left_error+1
+            
+            ; Check if we need to advance left X
+        check_left_advance:
+            sec
+            lda left_error
+            sbc seg_height      ; Compare against segment height
+            tay                 ; Save low byte
+            lda left_error+1
+            sbc seg_height+1
+            bcc no_left_advance ; If error < height, don't advance
+            
+            ; Update error and advance X
+            sty left_error
+            sta left_error+1
+            
+            lda left_dx_neg
+            bne move_left
+            
+            inc16 left_edge      ; Move right
+            jmp check_left_advance
+            
+        move_left:
+            dec16 left_edge      ; Move left
+            jmp check_left_advance
+
+        no_left_advance:
+            ; Update right edge position
+            clc
+            lda right_error
+            adc right_dx
+            sta right_error
+            lda right_error+1
+            adc right_dx+1
+            sta right_error+1
+            
+            ; Check if we need to advance right X
+        check_right_advance:
+            sec
+            lda right_error
+            sbc seg_height      ; Compare against segment height
+            tay                 ; Save low byte
+            lda right_error+1
+            sbc seg_height+1
+            bcc no_right_advance ; If error < height, don't advance
+            
+            ; Update error and advance X
+            sty right_error
+            sta right_error+1
+            
+            lda right_dx_neg
+            bne move_right
+            
+            inc16 right_edge      ; Move right
+            jmp check_right_advance
+            
+        move_right:
+            dec16 right_edge      ; Move right
+            jmp check_right_advance
+
+        no_right_advance:
+            inc16 line_info+line_data::y1  ; Next scanline
+            inc y_top
+            jmp scanline_loop
+
+    segment_done:
+        inc right_index
+        inc right_index    ; Move to next vertex (2 bytes per vertex)
+        dec left_index
+        dec left_index      ; Move to previous vertex
+        dec count
+        jmp next_segment
+
+    done:
     rts
 .endproc
+

@@ -30,7 +30,7 @@
     work:   .res 24
     temp:   .res 4
     read:   .res 6
-    mtemp:  .res 1
+    mtemp:  .res 2
     flag:   .res 1
 
 .segment "DATA"
@@ -46,8 +46,6 @@
     stz frame_counter
     stz frame_counter+1
     stz flag
-    lda #1
-    stz debug_mode
 
     ; jsr unpack_data
     jsr init_vera

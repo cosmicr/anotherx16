@@ -15,6 +15,7 @@
 .include "resource.inc"
 .include "text.inc"
 .include "macros.inc"
+.include "polygon.inc"
 
 .segment "BSS"
     state:   .res .sizeof(engine)
@@ -133,7 +134,7 @@
         rts
     @error:
         jsr CINT
-        brk
+        stp ; todo: add error messages throughout!
         rts
 .endproc
 

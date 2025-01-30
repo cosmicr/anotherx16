@@ -23,6 +23,11 @@
 .segment "ZEROPAGE"
     otemp: .res 2
 
+    ; opocde_0C_CCTRL
+    task_ptr:   .res 2
+    end:        .res 1
+    task_state: .res 1
+
 .segment "CODE"
 
 .macro var_to_signed
@@ -49,8 +54,7 @@
     sta otemp
 
     ply
-    lda otemp ; this line is redundant
-    sta state+engine::vars,y
+    sta state+engine::vars,y ; val lo is already in A
     lda otemp+1
     sta state+engine::vars+256,y
     
@@ -512,69 +516,54 @@ jump_table:
 ; CCTRL start, end, state
 ; ---------------------------------------------------------------
 .proc opcode_0C_CCTRL
-    start = otemp
-    end = work+2
-    state = work+3
-    task_ptr = work+4
-; TODO: Optimise this function
-stp
     jsr read_script_byte
-    sta start
+    sta task_ptr
+    stz task_ptr+1
+    pha ; save for counting
     jsr read_script_byte
     sta end
     jsr read_script_byte
-    sta state
+    sta task_state
 
-    lda start
-    sta task_ptr
-    stz task_ptr+1
-
-    lda state
     cmp #2
     bne set_state
-    kill_tasks:
-    lda task_ptr
+
+    ; Set task_ptr to the start task
+    mulx16 task_ptr, .sizeof(task)
+    add16 task_ptr, tasks
+
+    ; Kill tasks - set next_pc to -2
+    plx ; counter
     kill_loop:
-        cmp end
-        bcc :+
-        beq :+
-        bra kill_end
+        cpx end
+        beq :+ ; less than or equal to end
+        bcs kill_end
         :
-        pha
-        mulx16 task_ptr, .sizeof(task)
-        add16 task_ptr, tasks
         ldy #task::next_pc
         lda #$FE    ; -2
         sta (task_ptr),y
         iny
         lda #$FF
         sta (task_ptr),y
-        pla
-        inc
-        sta task_ptr
-        stz task_ptr+1
+        add16 task_ptr, .sizeof(task)
+        inx
         bra kill_loop
     kill_end:
     rts
 
+    ; Set task state - set next_state to state
     set_state:
-    lda task_ptr
+    plx ; counter
     state_loop:
-        cmp end
-        bcc :+
-        beq :+
-        bra state_end
+        cpx end
+        beq :+ ; less than or equal to end
+        bcs state_end
         :
-        pha
-        mulx16 task_ptr, .sizeof(task)
-        add16 task_ptr, tasks
         ldy #task::next_state
-        lda state
+        lda task_state
         sta (task_ptr),y
-        pla
-        inc
-        sta task_ptr
-        stz task_ptr+1
+        add16 task_ptr, .sizeof(task)
+        inx
         bra state_loop
     state_end:
     rts
@@ -854,7 +843,7 @@ stp
     lda num
     ldx freq
     ldy volume
-
+rts ; todo: lots of sound issues
     jsr play_sample
 
     rts

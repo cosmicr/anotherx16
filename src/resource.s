@@ -79,7 +79,8 @@
     ldx #8 ; device
     ldy #0 ; secondary address = CBM_READ
     jsr OPEN
-    jcs error ; error opening file ; todo: this is not how to check for errors
+    jsr READST
+    jne error ; error opening file
     ldx #1 ; file #1
     jsr CHKIN ; set input channel
 
@@ -235,7 +236,7 @@
     lda (work),y
     jne resource_loaded
 
-    ; save the current bank to the resource ; todo: probably not necessary
+    ; save the current bank to the resource ; probably not necessary
     ldy #resource::rank
     lda next_bank
     sta (work),y

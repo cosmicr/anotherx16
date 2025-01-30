@@ -19,10 +19,12 @@
 .include "vera.inc"
 
 .segment "DATA"
-    debug_mode: .res 1
-    debug_step: .res 1
+    debug_mode: .byte 0
+    debug_step: .byte 0
 
 .segment "CODE"
+
+; todo: this won't work with layer 1, need to implement using text display routines
 
 ; ---------------------------------------------------------------
 ; Display current bytecode pos and last opcode
@@ -87,7 +89,7 @@ end:
 ; show current task
 ; ---------------------------------------------------------------
 .segment "DATA"
-    task_string: .byte "Task:", 0
+    task_string: .asciiz "Task:"
 
 .segment "CODE"
 .proc show_task

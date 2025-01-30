@@ -26,7 +26,7 @@
     opcode:     .res 1
 
 .segment "DATA"
-    pc:         .res 2
+    pc:         .word 0
 
 .segment "CODE"
 

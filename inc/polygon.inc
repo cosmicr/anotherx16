@@ -7,20 +7,22 @@
 .global polygon_info
 .globalzp x1, y1, x2, y2, x3, y3, x4, y4, line_info
 
+PRECISION = 8
+MASK = $FFFF << PRECISION ; $FFFF00
+LEFT_FRAC = (1 << (PRECISION - 1)) - 1 ; $7F
+RIGHT_FRAC = (1 << (PRECISION - 1)) ; $80
+
 .struct polygon_data
     offset          .word
     center_x        .word
     center_y        .word
     zoom            .byte
     color           .byte
-    width           .byte
-    height          .byte
-    bx1             .byte
-    by1             .byte
-    bx2             .byte
-    by2             .byte
+    width           .word
+    height          .word
     num_vertices    .byte
-    vertices        .res 256
+    vx              .res 256 ; 128 vertices (16-bit)
+    vy              .res 256
     polygons        .word
 .endstruct
 
@@ -31,6 +33,18 @@
     color           .byte
 .endstruct
 
+.struct POINT
+    x_val           .word
+    y_val           .word
+.endstruct
+
+.struct EDGE
+    x_val           .word
+    dx              .word
+    dy              .word
+    sx              .word
+    error           .word
+.endstruct
 
 ; #define Scale_Width(x) ((x >> 1) + (x >> 2))
 .macro scale_x byte

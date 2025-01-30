@@ -6,6 +6,30 @@
         .endif
 .endmacro
 
+.macro push addr
+  lda addr
+  pha
+.endmacro
+
+.macro pop addr
+  pla
+  sta addr
+.endmacro
+
+.macro push16 addr
+  lda addr+1
+  pha
+  lda addr
+  pha
+.endmacro
+
+.macro pop16 addr
+  pla
+  sta addr
+  pla
+  sta addr+1
+.endmacro
+
 .macro abs addr, val_A, val_B
   sec
   lda val_B
@@ -25,6 +49,26 @@
   :
 .endmacro
 
+.macro min16 val_A, val_B
+.scope
+  lda val_A+1
+  cmp val_B+1
+  bcc set_result
+  bne done
+  lda val_A
+  cmp val_B
+  bcc set_result
+done:
+  lda val_B
+  ldx val_B+1
+  bra end
+set_result:
+  lda val_A
+  ldx val_A+1
+end:
+.endscope
+.endmacro
+
 .macro max val_A, val_B
   lda val_A
   cmp val_B
@@ -32,7 +76,6 @@
   lda val_B
   : 
 .endmacro
-
 
 .macro  inc16   addr
 .scope
@@ -53,10 +96,12 @@
 .endmacro
 
 .macro dec16 addr
+.scope
   lda    addr
   bne :+
   dec    addr+1
   : dec    addr
+.endscope
 .endmacro
 
 .macro asl_addr addr, count
@@ -83,6 +128,18 @@
   .endrepeat
 .endmacro
 
+; negate a 16 bit number
+.macro neg16 addr
+  lda addr
+  eor #$FF
+  sta addr
+  lda addr+1
+  eor #$FF
+  sta addr+1
+  clc
+  inc16 addr
+.endmacro
+
 ; these are quite slow, only meant for testing
 .macro mulx addr, multiplier
   lda #0
@@ -92,6 +149,7 @@
   .endrepeat
 .endmacro
 
+; this is faster for small values
 .macro mulx16 addr, multiplier
 .scope
   ldx addr         ; Load the low byte of the value
@@ -116,6 +174,77 @@
   pla              ; Clean up the stack (pull the final zero)
 .endscope
 .endmacro
+
+; this version is faster for large values
+.macro mulx16large addr, multiplier
+.scope
+    ; Preserve multiplier value
+    lda #multiplier
+    sta mtemp+2   ; Store in a temp location
+    
+    ; Clear the upper bytes of mtemp
+    lda #0
+    sta mtemp
+    sta mtemp+1
+    
+    ; For each bit in multiplier
+    ldx #8
+@loop:
+    ; Shift mtemp left (multiply by 2)
+    asl mtemp
+    rol mtemp+1
+    
+    ; Check next bit of multiplier
+    asl mtemp+2
+    bcc @skip      ; If bit was 0, skip the addition
+    
+    ; Add addr to mtemp if bit was 1
+    lda mtemp
+    clc
+    adc addr
+    sta mtemp
+    lda mtemp+1
+    adc addr+1
+    sta mtemp+1
+    
+@skip:
+    dex
+    bne @loop
+    
+    ; Copy result back to addr
+    lda mtemp
+    sta addr
+    lda mtemp+1
+    sta addr+1
+.endscope
+.endmacro
+
+.macro mulx16_addr addr, multiplier
+.scope
+  ldx addr         ; Load the low byte of the value
+  ldy addr+1       ; Load the high byte of the value
+  lda multiplier   ; Load the multiplier value
+  dec              ; Decrement it
+  pha              ; Push the (multiplier-1) onto the stack
+
+@loop:
+  txa              ; Transfer X to A
+  clc              ; Clear carry flag before addition
+  adc addr         ; Add the low byte of the value to A
+  sta addr         ; Store the result back to the low byte
+  tya              ; Transfer Y to A
+  adc addr+1       ; Add the high byte of the value to A
+  sta addr+1       ; Store the result back to the high byte
+
+  pla              ; Pull (multiplier-1) from the stack
+  dec              ; Decrement it
+  pha              ; Push it back onto the stack
+  bne @loop        ; If not zero, repeat
+
+  pla              ; Clean up the stack (pull the final zero)
+.endscope
+.endmacro
+
 
 ; Multiply two 8 bit values fast, result in A and X (clobbers variables and Y too)
 .macro mulx_addr addra, addrb
