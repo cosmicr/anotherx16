@@ -8,14 +8,14 @@
 .global set_var
 
 .macro set_var index, value
-    ldy #index
+    ldx #index
     lda #<value
-    sta state+engine::vars,y
+    sta state+engine::vars,x
     lda #>value
-    sta state+engine::vars+256,y
+    sta state+engine::vars+256,x
 .endmacro
 
-
+; todo: consider moving everything to ZP except for vars for speed
 .struct engine
     draw_page       .res 1  ; page_ptr0
     display_page    .res 1  ; page_ptr1

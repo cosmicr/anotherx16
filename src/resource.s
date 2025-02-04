@@ -162,7 +162,8 @@
         inx
         cpx #MAX_RESOURCES
         bne @status_loop
-
+    ldx #0
+    jsr CHKIN
     rts
 
     error:
@@ -245,7 +246,7 @@
     ; todo: load and unpack from original datafiles
     ; todo: if we use the disk for loading then we could probably still have music!
     lda next_bank
-    sta $00
+    sta RAM_BANK
     lda #0
     ldx #8
     ldy #2
@@ -302,11 +303,7 @@
     lda (work),y
     adc next_offset+3
     sta next_offset+3
-    ;    next_offset -= BANK_RAM_SIZE; ; high byte & $1f = size%8192
-    ;    next_bank++; 
-    ; stz next_offset+2
-    ; stz next_offset+3
-    lda $00
+    lda RAM_BANK
     sta next_bank
 
     ; todo: what if we run out of memory?

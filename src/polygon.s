@@ -279,10 +279,6 @@
     rts
 .endproc
 
-; ---------------------------------------------------------------
-; multiply value in A by zoom factor and then shifts right by 6
-; returns result in A (low byte) and X (high byte)
-; ---------------------------------------------------------------
 .proc multiply_zoom
     result = ztemp
     zoom = ztemp+1
@@ -290,33 +286,40 @@
     ldx polygon_info+polygon_data::zoom
     cpx #64
     beq no_zoom     ; Skip multiplication if zoom factor is 64
+    
+    cpx #203        ; Check for large zoom factor
+    bcs max_value   ; If zoom >= 204, return maximum value
 
-    ; Multiplication
+    ; Normal multiplication for smaller values
     sta result      
-    stx zoom        ; Store zoom factor
+    stx zoom        
     mulx_addr result, zoom
     stx result+1
 
     ; Division by 64
-    lsr result+1    ; 5
-    ror             ; 2  
-    lsr result+1    ; 5
-    ror             ; 2
-    lsr result+1    ; 5
-    ror             ; 2
-    lsr result+1    ; 5
-    ror             ; 2
-    lsr result+1    ; 5
-    ror             ; 2
-    lsr result+1    ; 5
-    ror             ; 2
-    ldx result+1    ; 3
-    
+    lsr result+1    
+    ror             
+    lsr result+1    
+    ror             
+    lsr result+1    
+    ror             
+    lsr result+1    
+    ror             
+    lsr result+1    
+    ror             
+    lsr result+1    
+    ror             
+    ldx result+1    
     rts
 
-    no_zoom:
-        ldx #00         ; Set high byte to 0 since no multiplication occurred
-        rts
+max_value:
+    lda #$FF        ; 65535 >> 6 = 1023
+    ldx #$03        
+    rts
+
+no_zoom:
+    ldx #00         
+    rts
 .endproc
 
 ; ---------------------------------------------------------------
@@ -530,7 +533,7 @@
         scanline_loop:
             lda y_top           ; Check if reached end of segment
             cmp y_bottom
-            jcs segment_done
+            jeq segment_done
        
             ; Draw the horizontal line
             lda left_edge

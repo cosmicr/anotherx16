@@ -9,13 +9,15 @@
 .global draw_line, draw_pixel
 .global color_lookup_shifted
 
+.global page_base_lo, page_base_hi, page_base_bank
+
 ; ---------------------------------------------------------------
 ; Screen resolution constants
 ; ---------------------------------------------------------------
 SCREEN_WIDTH    = 320 ; fixed
 SCREEN_HEIGHT   = 192 ; (180 to 192) but looks worse the lower you go
 ; page size is screen width * screen height / 2 to the nearest multiple of 2048
-PAGE_SIZE       = ((320 * SCREEN_HEIGHT) / 2 + 2047) & $FFFFF800
+PAGE_SIZE       = ((320 * SCREEN_HEIGHT) / 2 + 2047) & $FFFFF800 ; = $7800 (30720 bytes)
 
 FX_CTRL = $9F29
 FX_CACHE_L = $9F29
@@ -26,4 +28,15 @@ FX_CACHE_U = $9F2C
 .macro set_dcsel mode
     lda #(mode<<1)
     sta VERA::CTRL
+.endmacro
+
+
+; X: page number
+.macro set_addr_page
+    lda page_base_lo,x
+    sta VERA::ADDR
+    lda page_base_hi,x
+    sta VERA::ADDR + 1
+    lda page_base_bank,x
+    sta VERA::ADDR + 2
 .endmacro

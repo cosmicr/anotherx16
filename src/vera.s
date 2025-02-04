@@ -18,6 +18,7 @@
 .include "bank.inc"
 .include "divide.inc"
 .include "polygon.inc"
+.include "text.inc"
 
 
 ; todo: clean up zero page variables
@@ -25,42 +26,33 @@
     vtemp:              .byte 0,0,0,0,0,0,0,0
 
 .segment "RODATA"
-    y160_lookup_lo: ; clamped at 200
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $A0, $40, $E0, $80, $20, $C0, $60
-        .byte $00, $A0, $40, $E0, $80, $20, $C0, $60, $00, $00, $00, $00, $00, $00, $00, $00
-        .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-        .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-        .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-
+    y160_lookup_lo:
+    .repeat SCREEN_HEIGHT, i
+        .byte (i * 160) & $FF
+    .endrepeat
 
     y160_lookup_hi:
-        .byte $00, $00, $01, $01, $02, $03, $03, $04, $05, $05, $06, $06, $07, $08, $08, $09
-        .byte $0A, $0A, $0B, $0B, $0C, $0D, $0D, $0E, $0F, $0F, $10, $10, $11, $12, $12, $13
-        .byte $14, $14, $15, $15, $16, $17, $17, $18, $19, $19, $1A, $1A, $1B, $1C, $1C, $1D
-        .byte $1E, $1E, $1F, $1F, $20, $21, $21, $22, $23, $23, $24, $24, $25, $26, $26, $27
-        .byte $28, $28, $29, $29, $2A, $2B, $2B, $2C, $2D, $2D, $2E, $2E, $2F, $30, $30, $31
-        .byte $32, $32, $33, $33, $34, $35, $35, $36, $37, $37, $38, $38, $39, $3A, $3A, $3B
-        .byte $3C, $3C, $3D, $3D, $3E, $3F, $3F, $40, $41, $41, $42, $42, $43, $44, $44, $45
-        .byte $46, $46, $47, $47, $48, $49, $49, $4A, $4B, $4B, $4C, $4C, $4D, $4E, $4E, $4F
-        .byte $50, $50, $51, $51, $52, $53, $53, $54, $55, $55, $56, $56, $57, $58, $58, $59
-        .byte $5A, $5A, $5B, $5B, $5C, $5D, $5D, $5E, $5F, $5F, $60, $60, $61, $62, $62, $63
-        .byte $64, $64, $65, $65, $66, $67, $67, $68, $69, $69, $6A, $6A, $6B, $6C, $6C, $6D
-        .byte $6E, $6E, $6F, $6F, $70, $71, $71, $72, $73, $73, $74, $74, $75, $76, $76, $77
-        .byte $78, $78, $79, $79, $7A, $7B, $7B, $7C, $7D, $00, $00, $00, $00, $00, $00, $00
-        .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-        .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
-        .byte $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00, $00
+    .repeat SCREEN_HEIGHT, i
+        .byte (i * 160) >> 8
+    .endrepeat
+
+    page_base_lo:
+        .byte <(PAGE_SIZE * 0)
+        .byte <(PAGE_SIZE * 1)
+        .byte <(PAGE_SIZE * 2) 
+        .byte <(PAGE_SIZE * 3)
+
+    page_base_hi:
+        .byte >(PAGE_SIZE * 0)
+        .byte >(PAGE_SIZE * 1)
+        .byte >(PAGE_SIZE * 2)
+        .byte >(PAGE_SIZE * 3)
+
+    page_base_bank:
+        .byte ((PAGE_SIZE * 0) >> 16)
+        .byte ((PAGE_SIZE * 1) >> 16)
+        .byte ((PAGE_SIZE * 2) >> 16)
+        .byte ((PAGE_SIZE * 3) >> 16)
 
     color_lookup_hi:
         .byte $00, $10, $20, $30, $40, $50, $60, $70, $80, $90, $A0, $B0, $C0, $D0, $E0, $F0
@@ -94,6 +86,11 @@
 ; Initialise the VERA
 ; ---------------------------------------------------------------
 .proc init_vera
+    ; Disable all VERA layers
+    stz VERA::DISP::VIDEO
+
+    jsr clear_text_screen ; clear text screen
+
     ; Set layer 0 to 4bpp bitmap mode
     lda #VERA::BITMAP4BPP
     sta VERA::L0::CONFIG
@@ -102,12 +99,17 @@
     stz VERA::L0::TILE_BASE
 
     ; Set layer 1 to 1 bit tile mode
-    lda #VERA::TILE1BPP |  VERA::MAP::WIDTH128 | VERA::MAP::HEIGHT64
+    lda #VERA::TILE1BPP |  VERA::MAP::WIDTH64 | VERA::MAP::HEIGHT32
     sta VERA::L1::CONFIG
 
-    ; Enable layer 0 (only) put CX16 into VGA mode
-    lda #(VERA::DISP::ENABLE::LAYER0 |VERA::DISP::MODE::VGA)
-    sta VERA::DISP::VIDEO
+    ; Set layer 1 mapbase to $1E000 in VRAM
+    lda #($1E000 >> 9)
+    sta VERA::L1::MAP_BASE
+
+    ; Set layer 1 tilebase to $1F000 in VRAM
+    lda #(($1F000 >> 11) << 2)
+    ora #(VERA::TILE::WIDTH8 | VERA::TILE::HEIGHT8)
+    sta VERA::L1::TILE_BASE
 
     ; Set the screen resolution 
     lda #((SCREEN_WIDTH << 7) / 640)
@@ -115,8 +117,28 @@
     lda #((SCREEN_HEIGHT << 7) / 480)
     sta VERA::DISP::VSCALE  
 
-    jsr clear_text_screen ; clear text screen
+    ; Clear memory to black
+    ldx #0
+    loop:
+        lda page_base_lo,x
+        sta VERA::ADDR
+        lda page_base_hi,x
+        sta VERA::ADDR + 1
+        lda page_base_bank,x
+        ora #VERA::INC4
+        sta VERA::ADDR + 2
+        lda #0
+        phx
+        jsr clear_page
+        plx
+        inx
+        cpx #4
+        bne loop
 
+    ; Enable layer 0 (only) put CX16 into VGA mode
+    lda #(VERA::DISP::ENABLE::LAYER0 | VERA::DISP::ENABLE::LAYER1 | VERA::DISP::MODE::VGA)
+    sta VERA::DISP::VIDEO
+    
     rts
 .endproc
 
@@ -127,82 +149,19 @@
 ; ---------------------------------------------------------------
 .proc set_vera_page
     stz VERA::CTRL
-    cmp #0
-    beq set_vera_page_0
-    cmp #1
-    beq set_vera_page_1
-    cmp #2
-    beq set_vera_page_2
-    cmp #3
-    beq set_vera_page_3
-    rts
-
-set_vera_page_0:
-    stz VERA::L0::TILE_BASE
-    rts
-
-set_vera_page_1:
-    lda #((1 * PAGE_SIZE) >> 9)
+    ; cmp #3          ; Check upper bound
+    ; bcs @exit ; todo: no early exit, we'll have to trust it will be ok!
+    tax
+    lda page_values,x
     sta VERA::L0::TILE_BASE
+    @exit:
     rts
 
-set_vera_page_2:
-    lda #((2 * PAGE_SIZE) >> 9)
-    sta VERA::L0::TILE_BASE
-    rts
-
-set_vera_page_3:    
-    lda #((3 * PAGE_SIZE) >> 9)
-    sta VERA::L0::TILE_BASE
-    rts
-.endproc
-
-; ---------------------------------------------------------------
-; Subroutine to set VERA::ADDR to the start of a page
-; *** these need to be aligned to 2048 bytes ***
-; ---------------------------------------------------------------
-.proc set_addr_page
-    cmp #0
-    beq set_addr_page_0
-    cmp #1
-    beq set_addr_page_1
-    cmp #2
-    beq set_addr_page_2
-    cmp #3
-    beq set_addr_page_3
-    rts
-
-set_addr_page_0:
-    stz VERA::ADDR
-    stz VERA::ADDR + 1
-    stz VERA::ADDR + 2
-    rts
-
-set_addr_page_1:
-    lda #<(PAGE_SIZE * 1)
-    sta VERA::ADDR
-    lda #>(PAGE_SIZE * 1)
-    sta VERA::ADDR + 1
-    stz VERA::ADDR + 2
-    rts
-
-set_addr_page_2:
-    lda #<(PAGE_SIZE * 2)
-    sta VERA::ADDR
-    lda #>(PAGE_SIZE * 2)
-    sta VERA::ADDR + 1
-    lda #((PAGE_SIZE * 2) >> 16)
-    sta VERA::ADDR + 2
-    rts
-
-set_addr_page_3:
-    lda #<(PAGE_SIZE * 3)
-    sta VERA::ADDR
-    lda #>(PAGE_SIZE * 3)
-    sta VERA::ADDR + 1
-    lda #((PAGE_SIZE * 3) >> 16)
-    sta VERA::ADDR + 2
-    rts
+    page_values:
+    .byte 0
+    .byte ((1 * PAGE_SIZE) >> 9)
+    .byte ((2 * PAGE_SIZE) >> 9)
+    .byte ((3 * PAGE_SIZE) >> 9)
 .endproc
 
 ; ---------------------------------------------------------------
@@ -211,11 +170,8 @@ set_addr_page_3:
 ; use whatever current page is set in VERA::ADDR
 ; ---------------------------------------------------------------
 .proc clear_page
-    sta vtemp
-    tax
-    lda color_lookup_hi,x
-    ora vtemp               ; color is duplicated for double pixels
-    tax
+    tay
+    ldx color_lookup_shifted,y
 
     ; Enable DCSEL mode 2 to allow cache operations
     set_dcsel 2
@@ -228,29 +184,48 @@ set_addr_page_3:
     set_dcsel 6
 
     ; Prepare the 32-bit cache with the colour to clear the screen with
-    txa
-    sta FX_CACHE_L
-    sta FX_CACHE_M
-    sta FX_CACHE_H
-    sta FX_CACHE_U
+    stx FX_CACHE_L
+    stx FX_CACHE_M
+    stx FX_CACHE_H
+    stx FX_CACHE_U
 
     ; Set address auto-increment to 4 bytes
     lda #VERA::INC4
-    ora VERA::ADDR + 2  
-    sta VERA::ADDR + 2
+    tsb VERA::ADDR + 2
 
     ; This will write 8 pixels at a time (32 bits)
     ldx #>(PAGE_SIZE / 4)   ; High Byte
     ldy #<(PAGE_SIZE / 4)   ; Low Byte
 
-    lda #%00000000          ; Set the mask to 0 (no mask)
-
     clear_loop:
-        sta VERA::DATA0     ; Write the 32-bit cache to VRAM (4 bytes of zeros) 
+        stz VERA::DATA0     ; Write the 32-bit cache to VRAM (4 bytes of zeros) 
         dey                 ; Decrement low byte of loop counter
         bne clear_loop      ; Continue loop if low byte is not zero
         dex                 ; Decrement high byte of loop counter
         bne clear_loop      ; Continue loop if high byte is not zero
+
+    ; now clear the text screen
+    lda #<($E000)
+    sta VERA::ADDR
+    lda #>($E000)
+    sta VERA::ADDR + 1
+    lda #($01 | VERA::INC4)
+    sta VERA::ADDR + 2
+
+    lda #65
+    sta FX_CACHE_L
+    stz FX_CACHE_M
+    sta FX_CACHE_H
+    stz FX_CACHE_U
+
+    ldx #>(64 * 32 / 2)
+    ldy #<(64 * 32 / 2)
+    text_clear_loop:
+        stz VERA::DATA0     ; Write the 32-bit cache to VRAM (4 bytes of zeros) 
+        dey                 ; Decrement low byte of loop counter
+        bne text_clear_loop ; Continue loop if low byte is not zero
+        dex                 ; Decrement high byte of loop counter
+        bne text_clear_loop ; Continue loop if high byte is not zero
 
     set_dcsel 2             ; Set DCSEL back to 0
     lda #(1<<6)             ;#VERA::FX_CTRL_FLAGS::CACHE_WRITE_EN
@@ -265,14 +240,14 @@ set_addr_page_3:
 ; Set lower case mode and clear text screen
 ; ---------------------------------------------------------------
 .proc clear_text_screen
-    lda #14 ; lowercase mode
-    jsr CHROUT
-
     lda #$01
     sta CHARCOLOR ; set background to black (0) and text to white (1)
 
     lda #147
     jsr CHROUT  ; use the kernal clear screen function lol
+
+    lda #14 ; lowercase mode
+    jsr CHROUT
 
     rts
 .endproc 
@@ -365,60 +340,66 @@ set_addr_page_3:
 ; X: destination page number
 ; ---------------------------------------------------------------
 .proc copy_page
-    REPEAT_COUNT = 10
-    jsr set_addr_page
-
-    ; set increment to 1 byte for the page
-    lda #VERA::INC1
-    tsb VERA::ADDR + 2
-
-    ; Set data port to 1
+    CACHE_OPS = 10      ; todo: this is the most for now, because of vsync issues
+    ; todo: consider doing interleved copies? might not look as good though
+    ; note: if we can gain some cycles elsewhere, maybe we can increase this number
+    ; set up source
+    tay
+    lda page_base_lo,y
+    sta VERA::ADDR
+    lda page_base_hi,y
+    sta VERA::ADDR + 1
+    lda page_base_bank,y
+    ora #VERA::INC1
+    sta VERA::ADDR + 2
+    
+    ; Set up destination
     lda #1
     sta VERA::CTRL
+    lda page_base_lo,x
+    sta VERA::ADDR
+    lda page_base_hi,x
+    sta VERA::ADDR + 1
+    lda page_base_bank,x
+    ora #VERA::INC4    ; Keep INC4 for 4-byte aligned writes
+    sta  VERA::ADDR + 2
     
-    ; set the destination address to the start of the page
-    txa
-    jsr set_addr_page
-    lda #VERA::INC4
-    tsb VERA::ADDR + 2
+    ; Set DCSEL to 2 for cache operations
+    lda #(2<<1)
+    sta VERA::CTRL
     
-    ; set DCSEL to 2
-    set_dcsel 2
-
-    ; loop through the screen and copy to the page
-    ldy #>(PAGE_SIZE / (REPEAT_COUNT * 4))
-    ldx #<(PAGE_SIZE / (REPEAT_COUNT * 4))
-
+    ; Pre-load control values
+    ldx #(1<<5)        ; Cache fill enable
+    ldy #(1<<6)        ; Cache write enable
+    
+    ; Main copy loop
+    lda #>(PAGE_SIZE/(CACHE_OPS * 4))
+    sta vtemp+1
+    lda #<(PAGE_SIZE/(CACHE_OPS * 4))
+    sta vtemp
     copy_loop:
-        .repeat REPEAT_COUNT
-            ; FX CTRL CACHE FILL
-            lda #(1<<5)
-            sta FX_CTRL
-
-            lda VERA::DATA0
-            lda VERA::DATA0
-            lda VERA::DATA0
-            lda VERA::DATA0 ; do nothing it just fills the cache
-
-            ; FX CTRL CACHE WRITE
-            lda #(1<<6)
-            sta FX_CTRL
-
-            ; write to data1
-            stz VERA::DATA1 ; (0 bitmask)
-        .endrepeat
-
-        dex
-        jne copy_loop
-        dey
-        jne copy_loop
-
-    ; turn off cache fill and write
+    .repeat CACHE_OPS
+        ; Fill cache (4 bytes)
+        stx FX_CTRL    ; Enable cache fill (X already has 1<<5)
+        lda VERA::DATA0
+        lda VERA::DATA0
+        lda VERA::DATA0
+        lda VERA::DATA0
+        
+        ; Write cache (4 bytes)
+        sty FX_CTRL    ; Enable cache write (Y already has 1<<6)
+        stz VERA::DATA1 ; Write all 4 bytes (mask = 0)
+    .endrepeat
+    
+    dec vtemp
+    jne copy_loop
+    dec vtemp+1
+    jne copy_loop
+    
+    ; Cleanup
     stz FX_CTRL
-    
-    ; set DSCEL to 0
     stz VERA::CTRL
-    
+
     rts
 .endproc
 
@@ -434,8 +415,8 @@ set_addr_page_3:
     sta VERA::CTRL
 
     ; set the address start
-    lda state+engine::draw_page
-    jsr set_addr_page
+    ldx state+engine::draw_page
+    set_addr_page
 
     ; todo: use 4 lookup tables instead of adding from one
     ; add Y offset to address
@@ -481,6 +462,7 @@ set_addr_page_3:
     sta VERA::ADDR+2
     ; rts
 .endmacro
+
 
 ; ---------------------------------------------------------------
 ; Draw a horizontal line
@@ -688,7 +670,13 @@ set_addr_page_3:
     sec
     lda line_info+line_data::x2
     sbc line_info+line_data::x1
+    bcs :+
+    rts        ; Exit if subtraction would underflow
+    :
     dec
+    bpl :+
+    rts        ; Exit if decrement would underflow
+    :
     sta num_loops
 
         ; draw leading mask
@@ -724,8 +712,8 @@ set_addr_page_3:
     stz VERA::CTRL
 
     ; set the address start
-    lda state+engine::draw_page
-    jsr set_addr_page
+    ldx state+engine::draw_page
+    set_addr_page
 
     ; set vera address to y*160
     ldy line_info+line_data::y1

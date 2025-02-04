@@ -7,7 +7,7 @@
 .global resource_table, next_offset, next_bank
 
 MAX_RESOURCES = 146
-RESOURCE_BANK_START = $02
+RESOURCE_BANK_START = $01
 
 .struct resource
     status          .res 1

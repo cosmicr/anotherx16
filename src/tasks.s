@@ -24,9 +24,18 @@
 
 .segment "ZEROPAGE"
     opcode:     .res 1
+    current_task:   .res 2
+    script_pointer: .res 3
 
 .segment "DATA"
     pc:         .word 0
+
+.segment "RODATA"
+    resource_offsets:
+    .repeat MAX_RESOURCES, i
+        .word resource_table + (i * .sizeof(resource))
+    .endrepeat
+    
 
 .segment "CODE"
 
@@ -43,26 +52,24 @@
 
 ; Clear Tasks - iterate through tasks and reset values
 .proc clear_tasks
-    current_task = work
     lda #<tasks
     sta current_task
     lda #>tasks
     sta current_task+1 ; get the task base address (first task)
-    ldx #0
+    
+    ldx #MAX_TASKS-1
     clear_task_loop:
         lda #0
         sta_task task::state
         sta_task task::next_state
+        sta_task task::stack_pos
         lda #$FF
         sta_task task::pc
         sta_task task::pc+1
         sta_task task::next_pc
         sta_task task::next_pc+1
-        lda #0
-        sta_task task::stack_pos
         add16 current_task, .sizeof(task)
-        inx
-        cpx #MAX_TASKS
+        dex
         bne clear_task_loop
 
     ; Reset first task PC to 0
@@ -198,14 +205,14 @@
     ; **Load the part if necessary
     lda state+engine::next_part
     cmp #0
-    jeq @skip_clear
+    beq skip_clear
     jsr set_part
     jsr clear_tasks
 
-    @skip_clear:
+    skip_clear:
         jsr update_tasks
 
-    ; TODO: *** UPDATE INPUT ***
+    ; **Update input
     jsr update_input
 
     ; **Execute tasks
@@ -220,29 +227,18 @@
 ; ---------------------------------------------------------------
 .proc read_script_byte
     table_offset = read
-    bank_num = read+2
     pointer = read+3
 
-    ; bytecode resource is 2nd value in parts table
-    lda state+engine::part
-    asl
-    asl ; multiply by 4 ; todo: cache this value for speed
-    inc
-    tay
-    lda part_resources,y    ; get the res number
-    tax ; counter
-    lda #<resource_table
+    ; todo: we're almost at a point where this could be a macro
+    ; todo: cache location of bytecode resource
+    lda state+engine::bytecode
     sta table_offset
-    lda #>resource_table
+    lda state+engine::bytecode+1
     sta table_offset+1
-    @table_loop:
-        add16 table_offset, .sizeof(resource)
-        dex
-        bne @table_loop
 
-    ldy #resource::rank
-    lda (table_offset),y
-    sta bank_num
+    ; ldy #resource::rank
+    ; lda (table_offset),y
+    ; sta bank_num
 
     ; todo: do we need to use all 32 bits of pointer?
     ldy #resource::pointer
@@ -252,8 +248,8 @@
     lda (table_offset),y
     sta pointer+1
     iny
-    lda (table_offset),y
-    sta pointer+2
+    ; lda (table_offset),y
+    ; sta pointer+2
 
     lda pointer
     clc
@@ -262,17 +258,82 @@
     lda pointer+1
     adc state+engine::bytecode_pos+1
     sta pointer+1       ; pointer = bytecode_pos + pointer 
-    lda pointer+2
-    adc #$00
-    sta pointer+2
+    ; lda pointer+2
+    ; adc #$00
+    ; sta pointer+2
 
     lda pointer
     ldx pointer+1
-    ldy pointer+2
+    ; ldy pointer+2
+    ldy #0
     jsr read_byte
 
     inc16 state+engine::bytecode_pos
 
+    rts ; value is in A
+.endproc
+
+; ---------------------------------------------------------------
+; Read script word
+; Returns: A = first byte read, X = second byte read
+; Little Endian
+; ---------------------------------------------------------------
+.proc read_script_word
+    table_offset = read
+    pointer = read+3
+
+    lda state+engine::bytecode
+    sta table_offset
+    lda state+engine::bytecode+1
+    sta table_offset+1
+
+    ; todo: do we need to use all 32 bits of pointer?
+    ldy #resource::pointer
+    lda (table_offset),y
+    sta pointer
+    iny
+    lda (table_offset),y
+    sta pointer+1
+    iny
+    ; lda (table_offset),y
+    ; sta pointer+2
+
+    lda pointer
+    clc
+    adc state+engine::bytecode_pos
+    sta pointer
+    lda pointer+1
+    adc state+engine::bytecode_pos+1
+    sta pointer+1       ; pointer = bytecode_pos + pointer 
+    ; lda pointer+2
+    ; adc #$00
+    ; sta pointer+2
+
+    lda pointer
+    ldx pointer+1
+    ; ldy pointer+2
+    ldy #0
+    jsr read_byte
+    pha ; save first byte
+    inc16 pointer
+    
+    lda pointer
+    ldx pointer+1
+    ; ldy pointer+2
+    ldy #0
+    jsr read_byte ; todo: read_word
+    tax ; second byte in x
+
+    clc
+    lda state+engine::bytecode_pos
+    adc #2
+    sta state+engine::bytecode_pos
+    lda #0
+    adc state+engine::bytecode_pos+1
+    sta state+engine::bytecode_pos+1
+
+    done:
+    pla ; restore first byte
     rts ; value is in A
 .endproc
 
@@ -299,11 +360,10 @@
         sta opcode
 
         ; debug output
-        jsr last_opcode
+        ; jsr last_opcode
         
         lda opcode
-        bit #$80
-        beq @test_draw_poly ; not set
+        bpl @test_draw_poly ; bit 7 not set
         jsr opcode_draw_poly_background
         bra while_loop
 
@@ -314,7 +374,6 @@
         bra while_loop
 
         @execute_opcode:
-
         jsr opcode_execute
         bra while_loop
 
@@ -393,11 +452,11 @@
     ; Get X-coordinate
     lda opcode          ; Load opcode into A once
 
-    bit #$10            ; Test bit 4 (0x10)
+    bit #$10            ; Test bit 4 (0x10) Value Type
     beq bit4_clear      ; If Z flag is set, bit 4 is 0
 
     bit4_set:
-        bit #$20            ; Test bit 5 (0x20)
+        bit #$20            ; Test bit 5 (0x20) Position Mode
         beq x_from_var      ; If Z flag is set, bit 5 is 0
         ; Both bits 4 and 5 are set (0b11), execute x_8bit_plus_256
         jsr read_script_byte

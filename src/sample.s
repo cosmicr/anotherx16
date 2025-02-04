@@ -23,7 +23,6 @@
     audio_ready:    .byte 0
 
 .segment "BSS"
-    old_irq:        .res 2
     channels:
     channel1:       .tag chan_data
     channel2:       .tag chan_data
@@ -43,26 +42,7 @@
 ; ---------------------------------------------------------------
 ; Setup Interrupt for AFLOW (Low FIFO buffer)
 ; ---------------------------------------------------------------
-.proc init_irq
-    sei               ; Disable interrupts
-
-    ; Save old IRQ vector
-    lda IRQVec
-    sta old_irq
-    lda IRQVec+1
-    sta old_irq+1
-
-    ; Install IRQ handler
-    lda #<irq_handler
-    sta IRQVec
-    lda #>irq_handler
-    sta IRQVec+1
-
-    ; Enable AFLOW interrupt
-    ; lda VERA::IRQ_EN
-    ; ora #%00001000       ; Set bit 3 (AFLOW interrupt enable)
-    ; sta VERA::IRQ_EN
-
+.proc init_audio
     ; set both channels as not done
     stz channel1+chan_data::done
     stz channel2+chan_data::done
@@ -75,8 +55,6 @@
 
     lda #1
     sta audio_ready
-
-    cli               ; Enable interrupts
 
     rts
 .endproc
@@ -193,25 +171,20 @@
 ; ---------------------------------------------------------------
 ; IRQ handler for AFLOW (Low FIFO buffer)
 ; ---------------------------------------------------------------
-; todo: probably need to move this to a separate file at some point
-.proc irq_handler
-    pha
-    phx
-    phy
-
+.proc update_audio
     ; If audio is not ready, exit
     lda audio_ready
-    beq irq_chain
+    beq done
 
     ; check if AFLOW is enabled
     lda VERA::IRQ_FLAGS
     and #%00001000       ; Check bit 3: AFLOW
-    beq irq_chain        ; FIFO isn't low, exit
+    beq done        ; FIFO isn't low, exit
 
     ; If both channels are available, then there's nothign playing
     lda channel1+chan_data::available
     ora channel2+chan_data::available
-    beq irq_chain
+    beq done
 
     ; FIFO is low, check if the sample playback is complete
     lda channel1+chan_data::done
@@ -225,7 +198,7 @@
     ; Check if FIFO buffer is empty
     lda VERA::PCM::CTRL
     and #%01000000          ; Check bit 6: EMPTY
-    beq irq_chain           ; If FIFO isn't empty, exit
+    beq done           ; If FIFO isn't empty, exit
 
     ; Sample is done
     ; Set Playback to none
@@ -239,19 +212,14 @@
     ; lda #$80
     ; sta VERA::PCM::CTRL
 
-    ; Exit IRQ handler
-    bra irq_chain
+    ; Exit 
+    rts
 
     refill_fifo:
     jsr fill_fifo        ; Refill the FIFO since sample is not done
 
-    irq_chain:
-    ply
-    plx
-    pla
-
-    ; Chain to previous IRQ handler
-    jmp (old_irq)
+    done:
+    rts
 .endproc
 
 ; ---------------------------------------------------------------
@@ -356,25 +324,3 @@
     rts
 .endproc
 
-
-; ---------------------------------------------------------------
-; Remove IRQ handler
-; ---------------------------------------------------------------
-.proc remove_irq
-    sei               ; Disable interrupts
-
-    ; Restore old IRQ vector
-    lda old_irq
-    sta IRQVec
-    lda old_irq+1
-    sta IRQVec+1
-
-    ; Make sure AFLOW interrupt is off
-    lda VERA::IRQ_EN
-    and #%11110111       ; Clear bit 3 (AFLOW interrupt enable)
-    sta VERA::IRQ_EN
-
-    cli               ; Enable interrupts
-
-    rts
-.endproc

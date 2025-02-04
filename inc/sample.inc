@@ -4,7 +4,7 @@
 ; ---------------------------------------------------------------
 
 .globalzp stemp
-.global play_sample, init_irq, remove_irq
+.global play_sample, init_irq, remove_irq, update_audio, init_audio
 
 
 .struct chan_data

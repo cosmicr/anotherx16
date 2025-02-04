@@ -4,7 +4,7 @@
 ; ---------------------------------------------------------------
 
 .globalzp opcode
-.global run_tasks, read_script_byte
+.global run_tasks, read_script_byte, read_script_word
 
 MAX_TASKS = 64
 

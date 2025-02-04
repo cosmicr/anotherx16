@@ -30,6 +30,7 @@
 ; Display current bytecode pos and last opcode
 ; ---------------------------------------------------------------
 .proc last_opcode
+rts ; not in use
     lda debug_mode
     beq end
 

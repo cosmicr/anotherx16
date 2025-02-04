@@ -23,7 +23,7 @@
 
 .segment "RODATA"
     part_resources:
-;           pal, code, poly1, poly2
+        ;   pal, code, poly1, poly2
         .byte $14, $15, $16, 0      ; protection screen
         .byte $17, $18, $19, 0      ; introduction
         .byte $1a, $1b, $1c, $11    ; water
@@ -44,9 +44,7 @@
     sta state+engine::buffer_page
     lda #2
     sta state+engine::display_page
-    lda #$FE
-    jsr get_page
-    sta state+engine::draw_page
+    sta state+engine::draw_page ; draw_page = display_page
 
     lda #$FF
     sta state+engine::next_palette
@@ -60,7 +58,7 @@
 
     set_var $BC, $0010
     set_var $C6, $0080
-    set_var $F2, 4000 ; some implementations use $6000?
+    set_var $F2, 4000 ; note: some implementations use $6000?
     set_var $DC, 33
     set_var $E4, 20
 
@@ -71,19 +69,19 @@
     stz state+engine::task_paused
 
     lda #<tasks
-    sta work
+    sta temp
     lda #>tasks
-    sta work+1  ; set the task list pointer
+    sta temp+1  ; set the task list pointer
     ldx #0
     clear_task_loop:
         ldy #0
         @inner_loop:    ; clear the task
             lda #0
-            sta (work),y
+            sta (temp),y
             iny
             cpy #.sizeof(task)
             bne @inner_loop
-        add16 work, .sizeof(task)
+        add16 temp, .sizeof(task)
         inx
         cpx #MAX_TASKS
         bne clear_task_loop
@@ -91,8 +89,6 @@
     stz state+engine::part
     lda #1
     sta state+engine::next_part
-
-    stz text_length ; clear text buffer length
 
     rts
 .endproc
@@ -118,13 +114,16 @@
 ; Returns: page number in A
 ; ---------------------------------------------------------------
 .proc get_page
+    ; if page number is $FF then return the current buffer_page
     cmp #$FF
     beq @get_ptr2
+    ; if page number is $FE then return the current display_page
     cmp #$FE
     beq @get_ptr1
-    ;else:
-    cmp #4 ; make sure number is lower than 4
-    bcs @error
+    ; else return the page number
+    ; todo: I've removed this for now for some extra speed, but maybe re-add later
+    ; cmp #4 ; make sure number is lower than 4
+    ; bcs @error
     rts
     @get_ptr2:
         lda state+engine::buffer_page
@@ -149,43 +148,55 @@
     stz next_offset+1
     stz next_offset+2
     stz next_offset+3
+    
+    ; get the offset into the part_resources table
     sta state+engine::part
     asl
-    asl ; get the offset into the part_resources table
+    asl 
     tay
+
+    
+    ; Load Pallete
     lda part_resources,y
     phy
     jsr load_resource
     ply
     sta state+engine::palette
     stx state+engine::palette+1
-
     iny
+
+    ; Load Code
     lda part_resources,y
     phy
-    jsr load_resource
+    jsr load_resource ; second resource is the code
     ply
     sta state+engine::bytecode
     stx state+engine::bytecode+1
-
     iny
+
+    ; Load Polygons1
     lda part_resources,y
     phy
-    jsr load_resource
+    jsr load_resource 
     ply
     sta state+engine::polygons1
     stx state+engine::polygons1+1
-
     iny
+
+    ; Load Polygons2
     lda part_resources,y
-    bne @load_polygons2
+    beq skip_polygons2 ; if no polygons2 then skip loading
+    jsr load_resource 
+    sta state+engine::polygons2
+    stx state+engine::polygons2+1
+    rts
+
+    ; skip loading polygons2
+    skip_polygons2:
     stz state+engine::polygons2
     stz state+engine::polygons2+1
     rts
-    @load_polygons2:
-        jsr load_resource
-        sta state+engine::polygons2
-        stx state+engine::polygons2+1
+
     rts
 .endproc
 
@@ -200,12 +211,10 @@
     cmp #$ff
     bne @get_page
     ; swap display_page and buffer_page
-    lda state+engine::display_page
-    sta work
+    ldx state+engine::display_page
     lda state+engine::buffer_page
     sta state+engine::display_page
-    lda work
-    sta state+engine::buffer_page ; swap page pointers
+    stx state+engine::buffer_page
     bra @set_next_palette
     
     @get_page:

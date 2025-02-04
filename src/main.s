@@ -18,6 +18,7 @@
 .include "debug.inc"
 .include "polygon.inc"
 .include "sample.inc"
+.include "input.inc"
 
 .segment "STARTUP"
 
@@ -27,31 +28,29 @@
 
 ; todo: clean up zeropage variables
 .segment "ZEROPAGE"
-    work:   .res 24
-    temp:   .res 4
+    work:   .res 8
+    temp:   .res 8
     read:   .res 6
     mtemp:  .res 2
-    flag:   .res 1
-
-.segment "DATA"
-    frame_counter: .res 2
 
 .segment "CODE"
 
 ; ---------------------------------------------------------------
 ; Main program
 ; ---------------------------------------------------------------
-
-    ; debugging stuff
-    stz frame_counter
-    stz frame_counter+1
-    stz flag
-
-    ; jsr unpack_data
+    ; Unpack all the game data and save to disk
+    ; todo: jsr unpack_data
+    ; Set video modes and clear screen
     jsr init_vera
-    jsr init_irq  ; for audio
+    ; Setup keyboard and audio
+    jsr init_irq 
+    ; Load game resources
     jsr init_resources
+    ; Initialize engine state
     jsr init_engine
+    ; Clear the keyboard states
+    jsr init_input
+    ; Initialize tasks and bytecode pointer
     jsr init_game
 
     ; GAME LOOP
@@ -67,5 +66,3 @@ exit:
 ; ---------------------------------------------------------------
 ; End of main program
 ; ----------------------------------------------------------------
-
-
