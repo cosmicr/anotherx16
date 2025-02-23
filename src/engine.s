@@ -17,9 +17,14 @@
 .include "macros.inc"
 .include "polygon.inc"
 
-.segment "BSS"
+STARTING_PART = 1
+
+.segment "EXTZP" : zeropage
     state:   .res .sizeof(engine)
+
+.segment "BSS"
     tasks:   .res .sizeof(task) * MAX_TASKS
+    engine_vars:  .res 512
 
 .segment "RODATA"
     part_resources:
@@ -51,8 +56,8 @@
 
     ldx #0
     clear_vars:
-        stz state+engine::vars,x
-        stz state+engine::vars+256,x
+        stz engine_vars,x
+        stz engine_vars+256,x
         inx
         bne clear_vars ; loop 256 times
 
@@ -87,7 +92,7 @@
         bne clear_task_loop
 
     stz state+engine::part
-    lda #1
+    lda #STARTING_PART
     sta state+engine::next_part
 
     rts
@@ -113,29 +118,29 @@
 ; A: page number
 ; Returns: page number in A
 ; ---------------------------------------------------------------
-.proc get_page
-    ; if page number is $FF then return the current buffer_page
-    cmp #$FF
-    beq @get_ptr2
-    ; if page number is $FE then return the current display_page
-    cmp #$FE
-    beq @get_ptr1
-    ; else return the page number
-    ; todo: I've removed this for now for some extra speed, but maybe re-add later
-    ; cmp #4 ; make sure number is lower than 4
-    ; bcs @error
-    rts
-    @get_ptr2:
-        lda state+engine::buffer_page
-        rts
-    @get_ptr1:
-        lda state+engine::display_page
-        rts
-    @error:
-        jsr CINT
-        stp ; todo: add error messages throughout!
-        rts
-.endproc
+; .proc get_page
+;     ; if page number is $FF then return the current buffer_page
+;     cmp #$FF
+;     beq @get_ptr2
+;     ; if page number is $FE then return the current display_page
+;     cmp #$FE
+;     beq @get_ptr1
+;     ; else return the page number
+;     ; todo: I've removed this for now for some extra speed, but maybe re-add later
+;     ; cmp #4 ; make sure number is lower than 4
+;     ; bcs @error
+;     rts
+;     @get_ptr2:
+;         lda state+engine::buffer_page
+;         rts
+;     @get_ptr1:
+;         lda state+engine::display_page
+;         rts
+;     @error:
+;         jsr CINT
+;         stp ; todo: add error messages throughout!
+;         rts
+; .endproc
 
 ; ---------------------------------------------------------------
 ; Set Part - loads the relevant resources for the part
@@ -155,7 +160,6 @@
     asl 
     tay
 
-    
     ; Load Pallete
     lda part_resources,y
     phy
@@ -206,7 +210,7 @@
 ; ---------------------------------------------------------------
 .proc update_display
     cmp #$fe
-    beq @set_next_palette
+    beq set_next_palette
 
     cmp #$ff
     bne @get_page
@@ -215,13 +219,13 @@
     lda state+engine::buffer_page
     sta state+engine::display_page
     stx state+engine::buffer_page
-    bra @set_next_palette
+    bra set_next_palette
     
     @get_page:
-        jsr get_page
+        get_page
         sta state+engine::display_page
 
-    @set_next_palette:
+    set_next_palette:
         lda state+engine::next_palette
         cmp #$ff
         beq @skip_palette ; if next_palette is $FF then skip setting palette

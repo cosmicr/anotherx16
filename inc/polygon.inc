@@ -4,7 +4,7 @@
 ; ---------------------------------------------------------------
 
 .global parse_polygon
-.global polygon_info
+.globalzp polygon_info
 .globalzp x1, y1, x2, y2, x3, y3, x4, y4, line_info
 
 PRECISION = 8
@@ -16,13 +16,11 @@ RIGHT_FRAC = (1 << (PRECISION - 1)) ; $80
     offset          .word
     center_x        .word
     center_y        .word
-    zoom            .byte
+    zoom            .word
     color           .byte
     width           .word
     height          .word
     num_vertices    .byte
-    vx              .res 256 ; 128 vertices (16-bit)
-    vy              .res 256
     polygons        .word
 .endstruct
 

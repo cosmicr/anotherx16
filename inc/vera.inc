@@ -8,6 +8,7 @@
 .global copy_page_screen, copy_screen_page, copy_page
 .global draw_line, draw_pixel
 .global color_lookup_shifted
+.global copy_active
 
 .global page_base_lo, page_base_hi, page_base_bank
 
@@ -15,11 +16,12 @@
 ; Screen resolution constants
 ; ---------------------------------------------------------------
 SCREEN_WIDTH    = 320 ; fixed
-SCREEN_HEIGHT   = 192 ; (180 to 192) but looks worse the lower you go
+SCREEN_HEIGHT   = 190 ; (180 to 192) but looks worse the lower you go
 ; page size is screen width * screen height / 2 to the nearest multiple of 2048
 PAGE_SIZE       = ((320 * SCREEN_HEIGHT) / 2 + 2047) & $FFFFF800 ; = $7800 (30720 bytes)
 
 FX_CTRL = $9F29
+FX_MULT = $9F2C
 FX_CACHE_L = $9F29
 FX_CACHE_M = $9F2A
 FX_CACHE_H = $9F2B
@@ -31,6 +33,7 @@ FX_CACHE_U = $9F2C
 .endmacro
 
 
+; Sets base address of the VERA to the specified page base
 ; X: page number
 .macro set_addr_page
     lda page_base_lo,x

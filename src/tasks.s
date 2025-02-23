@@ -75,8 +75,9 @@
     ; Reset first task PC to 0
     stz tasks+task::pc
     stz tasks+task::pc+1    ; task 0 pc = 0
-    ; Clear next_part to 0
-    stz state+engine::next_part
+    ; Clear next_part to -1
+    lda #$FF
+    sta state+engine::next_part
 
     rts
 .endproc
@@ -204,7 +205,7 @@
 .proc run_tasks  
     ; **Load the part if necessary
     lda state+engine::next_part
-    cmp #0
+    cmp #$FF
     beq skip_clear
     jsr set_part
     jsr clear_tasks
@@ -222,107 +223,35 @@
 .endproc
 
 ; ---------------------------------------------------------------
-; Read script byte
-; Returns: A = byte read
-; ---------------------------------------------------------------
-.proc read_script_byte
-    table_offset = read
-    pointer = read+3
-
-    ; todo: we're almost at a point where this could be a macro
-    ; todo: cache location of bytecode resource
-    lda state+engine::bytecode
-    sta table_offset
-    lda state+engine::bytecode+1
-    sta table_offset+1
-
-    ; ldy #resource::rank
-    ; lda (table_offset),y
-    ; sta bank_num
-
-    ; todo: do we need to use all 32 bits of pointer?
-    ldy #resource::pointer
-    lda (table_offset),y
-    sta pointer
-    iny
-    lda (table_offset),y
-    sta pointer+1
-    iny
-    ; lda (table_offset),y
-    ; sta pointer+2
-
-    lda pointer
-    clc
-    adc state+engine::bytecode_pos
-    sta pointer
-    lda pointer+1
-    adc state+engine::bytecode_pos+1
-    sta pointer+1       ; pointer = bytecode_pos + pointer 
-    ; lda pointer+2
-    ; adc #$00
-    ; sta pointer+2
-
-    lda pointer
-    ldx pointer+1
-    ; ldy pointer+2
-    ldy #0
-    jsr read_byte
-
-    inc16 state+engine::bytecode_pos
-
-    rts ; value is in A
-.endproc
-
-; ---------------------------------------------------------------
 ; Read script word
 ; Returns: A = first byte read, X = second byte read
 ; Little Endian
 ; ---------------------------------------------------------------
 .proc read_script_word
-    table_offset = read
-    pointer = read+3
-
-    lda state+engine::bytecode
-    sta table_offset
-    lda state+engine::bytecode+1
-    sta table_offset+1
-
-    ; todo: do we need to use all 32 bits of pointer?
+    ; Get first byte
     ldy #resource::pointer
-    lda (table_offset),y
-    sta pointer
-    iny
-    lda (table_offset),y
-    sta pointer+1
-    iny
-    ; lda (table_offset),y
-    ; sta pointer+2
-
-    lda pointer
     clc
+    lda (state+engine::bytecode),y
     adc state+engine::bytecode_pos
-    sta pointer
-    lda pointer+1
+    sta read
+    iny
+    lda (state+engine::bytecode),y
     adc state+engine::bytecode_pos+1
-    sta pointer+1       ; pointer = bytecode_pos + pointer 
-    ; lda pointer+2
-    ; adc #$00
-    ; sta pointer+2
+    sta read+1
 
-    lda pointer
-    ldx pointer+1
-    ; ldy pointer+2
+    lda read
+    ldx read+1
     ldy #0
     jsr read_byte
-    pha ; save first byte
-    inc16 pointer
-    
-    lda pointer
-    ldx pointer+1
-    ; ldy pointer+2
+    pha ; low byte
+
+    inc16 read
+
+    lda read
+    ldx read+1
     ldy #0
-    jsr read_byte ; todo: read_word
-    tax ; second byte in x
+    jsr read_byte
+    tax ; high byte
 
     clc
     lda state+engine::bytecode_pos
@@ -333,7 +262,7 @@
     sta state+engine::bytecode_pos+1
 
     done:
-    pla ; restore first byte
+    pla ; restore low byte
     rts ; value is in A
 .endproc
 
@@ -343,33 +272,17 @@
 .proc execute_task
     while_loop:
         lda state+engine::task_paused ; if task_paused then return
-        bne @exit
+        bne exit
 
-; lda state+engine::bytecode_pos+1
-; cmp #$0F
-; bne :+
-; lda state+engine::bytecode_pos
-; cmp #$c4
-; bne :+
-; lda #1
-; sta debug_mode
-; sta debug_step
-; :
-
-        jsr read_script_byte
+        read_script_byte
         sta opcode
-
-        ; debug output
-        ; jsr last_opcode
         
-        lda opcode
-        bpl @test_draw_poly ; bit 7 not set
+        bbr7 opcode, @test_draw_poly ; branch if bit 7 is clear
         jsr opcode_draw_poly_background
         bra while_loop
 
         @test_draw_poly:
-        bit #$40
-        beq @execute_opcode ; not set
+        bbr6 opcode, @execute_opcode ; branch if bit 6 is clear
         jsr opcode_draw_poly_sprite
         bra while_loop
 
@@ -377,7 +290,7 @@
         jsr opcode_execute
         bra while_loop
 
-    @exit:
+    exit:
     rts
 .endproc
 
@@ -387,14 +300,14 @@
 .proc opcode_draw_poly_background
     lda opcode
     sta polygon_info+polygon_data::offset+1
-    jsr read_script_byte
+    read_script_byte
     sta polygon_info+polygon_data::offset
     asl16_addr polygon_info+polygon_data::offset, 1 ; offset *= 2
 
-    jsr read_script_byte
+    read_script_byte
     sta polygon_info+polygon_data::center_x
     stz polygon_info+polygon_data::center_x+1
-    jsr read_script_byte
+    read_script_byte
     sta polygon_info+polygon_data::center_y
     stz polygon_info+polygon_data::center_y+1
 
@@ -422,6 +335,7 @@
 
     lda #64
     sta polygon_info+polygon_data::zoom
+    stz polygon_info+polygon_data::zoom+1
     lda #$FF
     sta polygon_info+polygon_data::color
     jsr parse_polygon
@@ -434,44 +348,35 @@
 ; Assumes opcode is set before calling
 ; ---------------------------------------------------------------
 .proc opcode_draw_poly_sprite
-    ; Set default values
-    lda #64
-    sta polygon_info+polygon_data::zoom
-    lda state+engine::polygons1
-    sta polygon_info+polygon_data::polygons
-    lda state+engine::polygons1+1
-    sta polygon_info+polygon_data::polygons+1
-
     ; Get offset
-    jsr read_script_byte
+    jsr read_script_word
     sta polygon_info+polygon_data::offset+1
-    jsr read_script_byte
-    sta polygon_info+polygon_data::offset
+    stx polygon_info+polygon_data::offset
     asl16_addr polygon_info+polygon_data::offset, 1  ; offset *= 2
 
     ; Get X-coordinate
     lda opcode          ; Load opcode into A once
 
-    bit #$10            ; Test bit 4 (0x10) Value Type
-    beq bit4_clear      ; If Z flag is set, bit 4 is 0
+    ; Test bit 4 (0x10) Value Type
+    bbr4 opcode, bit4_clear ; If bit 4 is clear, execute bit4_clear
 
     bit4_set:
         bit #$20            ; Test bit 5 (0x20) Position Mode
         beq x_from_var      ; If Z flag is set, bit 5 is 0
         ; Both bits 4 and 5 are set (0b11), execute x_8bit_plus_256
-        jsr read_script_byte
+        read_script_byte
         sta polygon_info+polygon_data::center_x
         lda #1
         sta polygon_info+polygon_data::center_x+1
-        bra get_y
+        jra get_y
 
     x_from_var:
         ; Bit 4 is set, bit 5 is clear (0b01)
-        jsr read_script_byte
+        read_script_byte
         tax
-        lda state+engine::vars,x
+        lda engine_vars,x
         sta polygon_info+polygon_data::center_x
-        lda state+engine::vars+256,x
+        lda engine_vars+256,x
         sta polygon_info+polygon_data::center_x+1
         bra get_y
 
@@ -479,7 +384,7 @@
         bit #$20            ; Test bit 5 (0x20)
         beq x_16bit_immediate ; If Z flag is set, bit 5 is 0
         ; Bit 4 is clear, bit 5 is set (0b10), execute x_8_bit
-        jsr read_script_byte
+        read_script_byte
         sta polygon_info+polygon_data::center_x
         lda #0
         sta polygon_info+polygon_data::center_x+1
@@ -487,11 +392,9 @@
 
     x_16bit_immediate:
         ; Both bits 4 and 5 are clear (0b00)
-        jsr read_script_byte
+        jsr read_script_word
         sta polygon_info+polygon_data::center_x+1
-        jsr read_script_byte
-        sta polygon_info+polygon_data::center_x
-
+        stx polygon_info+polygon_data::center_x
 
     get_y:
         lda opcode          ; Load opcode into A once
@@ -504,39 +407,50 @@
 
         ; Both bits 3 and 2 are clear (0b00)
         ; Execute y_16bit_immediate
-        jsr read_script_byte
+        read_script_byte
         sta polygon_info+polygon_data::center_y+1
-        jsr read_script_byte
+        read_script_byte
         sta polygon_info+polygon_data::center_y
         bra get_zoom
 
     y_from_var:
-        jsr read_script_byte
+        read_script_byte
         tax
-        lda state+engine::vars,x
+        lda engine_vars,x
         sta polygon_info+polygon_data::center_y
-        lda state+engine::vars+256,x
+        lda engine_vars+256,x
         sta polygon_info+polygon_data::center_y+1
         bra get_zoom
 
     y_8bit_immediate:
-        jsr read_script_byte
+        read_script_byte
         sta polygon_info+polygon_data::center_y
         stz polygon_info+polygon_data::center_y+1
         ; Fall through to get_zoom
     
     get_zoom:
+        ; Set default values
+        lda #64
+        sta polygon_info+polygon_data::zoom
+        stz polygon_info+polygon_data::zoom+1
+        lda state+engine::polygons1
+        sta polygon_info+polygon_data::polygons
+        lda state+engine::polygons1+1
+        sta polygon_info+polygon_data::polygons+1
+
         lda opcode
-        bit #$03            ; Test bits 0 and 1
-        beq do_parse        ; If both bits are zero, do nothing
+        and #$03            ; Mask to just bits 0-1
+        asl                 ; Multiply by 2 to get jump table offset
+        tax
+        jmp (zoom_table,x)
 
-        bit #$02            ; Test bit 1 (0x02)
-        beq zoom_from_var   ; If bit 1 is zero, bits are 01
+    zoom_table:
+        .addr do_parse        ; 00 - use defaults
+        .addr zoom_from_var   ; 01 - zoom from var
+        .addr zoom_immediate  ; 10 - immediate zoom
+        .addr select_polygon2 ; 11 - use polygons2
 
-        bit #$01            ; Test bit 0 (0x01)
-        beq zoom_immediate  ; If bit 0 is zero, bits are 10
-
-        ; Both bits 0 and 1 are set (bits == 11)
+        ; If we get here both bits are set (%11==3)
         ; Execute select_polygon2
     select_polygon2:
         lda state+engine::polygons2
@@ -546,15 +460,18 @@
         bra do_parse
 
     zoom_from_var:
-        jsr read_script_byte
+        read_script_byte
         tax
-        lda state+engine::vars,x
+        lda engine_vars,x
         sta polygon_info+polygon_data::zoom
+        lda engine_vars+256,x
+        sta polygon_info+polygon_data::zoom+1
         bra do_parse
 
     zoom_immediate:
-        jsr read_script_byte
+        read_script_byte
         sta polygon_info+polygon_data::zoom
+        stz polygon_info+polygon_data::zoom+1
         ; Fall through to do_parse
 
     do_parse:
@@ -567,7 +484,6 @@
 .endproc
 
 .proc opcode_execute
-    opcode_addr = work
     .segment "DATA"
         jump_table:
             .word opcode_00_SETI

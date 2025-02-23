@@ -3,6 +3,21 @@
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
 
+; *** VERA MEMORY MAP
+; +---------------+-------+--------------------------------+
+; | ADDRESS       | SIZE  | DESCRIPTION                    |
+; +---------------+-------+--------------------------------+
+; | $00000-$077FF | $7800 | ################ Page 0 Bitmap |
+; | $07800-$0EFFF | $7800 | ################ Page 1 Bitmap |
+; | $0F000-$167FF | $7800 | ################ Page 2 Bitmap |
+; | $16800-$1DFFF | $7800 | ################ Page 3 Bitmap |
+; | $1E000-$1EFFF | $1000 | ## Charmap (not used)          |
+; | $1F000-$1F3FF | $0400 | #  Charset (not used)          |
+; | $1F400-$1F9BF | $05C0 | #  unused                      |
+; | $1F9C0-$1FFFF | $0640 | #  VERA Registers              |
+; +---------------+-------+--------------------------------+
+; # = 2048 bytes ($800)
+
 .macpack longbranch
 
 ; X16 and CBM includes
@@ -22,8 +37,21 @@
 
 
 ; todo: clean up zero page variables
-.segment "ZEROPAGE"
-    vtemp:              .byte 0,0,0,0,0,0,0,0
+.segment "EXTZP" : zeropage
+    vtemp:              .res 4
+    ; palette
+    pal_index:          .res 2
+    palette_addr:       .res 3
+    res_addr:           .res 2
+    ; for line drawing
+    num_loops:          .res 1
+    leading_mask:       .res 1
+    trailing_mask:      .res 1
+    ; copy page
+    copy_counter:       .res 1
+
+.segment "DATA"
+    copy_active:        .byte 0
 
 .segment "RODATA"
     y160_lookup_lo:
@@ -86,10 +114,10 @@
 ; Initialise the VERA
 ; ---------------------------------------------------------------
 .proc init_vera
+    jsr clear_text_screen ; clear text screen
+
     ; Disable all VERA layers
     stz VERA::DISP::VIDEO
-
-    jsr clear_text_screen ; clear text screen
 
     ; Set layer 0 to 4bpp bitmap mode
     lda #VERA::BITMAP4BPP
@@ -136,7 +164,7 @@
         bne loop
 
     ; Enable layer 0 (only) put CX16 into VGA mode
-    lda #(VERA::DISP::ENABLE::LAYER0 | VERA::DISP::ENABLE::LAYER1 | VERA::DISP::MODE::VGA)
+    lda #(VERA::DISP::ENABLE::LAYER0 | VERA::DISP::MODE::VGA)
     sta VERA::DISP::VIDEO
     
     rts
@@ -149,8 +177,6 @@
 ; ---------------------------------------------------------------
 .proc set_vera_page
     stz VERA::CTRL
-    ; cmp #3          ; Check upper bound
-    ; bcs @exit ; todo: no early exit, we'll have to trust it will be ok!
     tax
     lda page_values,x
     sta VERA::L0::TILE_BASE
@@ -204,35 +230,12 @@
         dex                 ; Decrement high byte of loop counter
         bne clear_loop      ; Continue loop if high byte is not zero
 
-    ; now clear the text screen
-    lda #<($E000)
-    sta VERA::ADDR
-    lda #>($E000)
-    sta VERA::ADDR + 1
-    lda #($01 | VERA::INC4)
-    sta VERA::ADDR + 2
-
-    lda #65
-    sta FX_CACHE_L
-    stz FX_CACHE_M
-    sta FX_CACHE_H
-    stz FX_CACHE_U
-
-    ldx #>(64 * 32 / 2)
-    ldy #<(64 * 32 / 2)
-    text_clear_loop:
-        stz VERA::DATA0     ; Write the 32-bit cache to VRAM (4 bytes of zeros) 
-        dey                 ; Decrement low byte of loop counter
-        bne text_clear_loop ; Continue loop if low byte is not zero
-        dex                 ; Decrement high byte of loop counter
-        bne text_clear_loop ; Continue loop if high byte is not zero
-
     set_dcsel 2             ; Set DCSEL back to 0
     lda #(1<<6)             ;#VERA::FX_CTRL_FLAGS::CACHE_WRITE_EN
     trb FX_CTRL             ;FX_CTRL        ;Disable cache writing
 
     stz VERA::CTRL          ;#VERA::DCSEL::MODE0
-    
+
     rts
 .endproc 
 
@@ -257,11 +260,6 @@
 ; A: palette number
 ; ---------------------------------------------------------------
 .proc set_palette
-    pal_index = vtemp
-    palette_addr = vtemp + 2
-    red = vtemp + 5
-    res_addr = vtemp + 6
-
     sta pal_index ; store palette number
     stz pal_index+1
 
@@ -313,7 +311,7 @@
         ldx palette_addr+1
         ldy palette_addr+2
         jsr read_byte       ; get red
-        sta red
+        pha ; save red
         inc24 palette_addr
 
         lda palette_addr
@@ -323,7 +321,7 @@
         sta VERA::DATA0     ; set green and blue
         inc24 palette_addr
 
-        lda red
+        pla ; get red
         sta VERA::DATA0     ; set red
 
         ply
@@ -340,9 +338,10 @@
 ; X: destination page number
 ; ---------------------------------------------------------------
 .proc copy_page
-    CACHE_OPS = 10      ; todo: this is the most for now, because of vsync issues
-    ; todo: consider doing interleved copies? might not look as good though
+    CACHE_OPS = 300      ; *must* be 30 or larger
+    ; todo: consider doing interleaved copies? might not look as good though
     ; note: if we can gain some cycles elsewhere, maybe we can increase this number
+    
     ; set up source
     tay
     lda page_base_lo,y
@@ -362,7 +361,7 @@
     sta VERA::ADDR + 1
     lda page_base_bank,x
     ora #VERA::INC4    ; Keep INC4 for 4-byte aligned writes
-    sta  VERA::ADDR + 2
+    sta VERA::ADDR + 2
     
     ; Set DCSEL to 2 for cache operations
     lda #(2<<1)
@@ -373,28 +372,24 @@
     ldy #(1<<6)        ; Cache write enable
     
     ; Main copy loop
-    lda #>(PAGE_SIZE/(CACHE_OPS * 4))
-    sta vtemp+1
     lda #<(PAGE_SIZE/(CACHE_OPS * 4))
-    sta vtemp
+    sta copy_counter
     copy_loop:
-    .repeat CACHE_OPS
-        ; Fill cache (4 bytes)
-        stx FX_CTRL    ; Enable cache fill (X already has 1<<5)
-        lda VERA::DATA0
-        lda VERA::DATA0
-        lda VERA::DATA0
-        lda VERA::DATA0
-        
-        ; Write cache (4 bytes)
-        sty FX_CTRL    ; Enable cache write (Y already has 1<<6)
-        stz VERA::DATA1 ; Write all 4 bytes (mask = 0)
-    .endrepeat
-    
-    dec vtemp
-    jne copy_loop
-    dec vtemp+1
-    jne copy_loop
+        .repeat CACHE_OPS
+            ; Fill cache (4 bytes)
+            stx FX_CTRL    ; Enable cache fill (X already has 1<<5)
+            lda VERA::DATA0
+            lda VERA::DATA0
+            lda VERA::DATA0
+            lda VERA::DATA0
+            
+            ; Write cache (4 bytes)
+            sty FX_CTRL    ; Enable cache write (Y already has 1<<6)
+            stz VERA::DATA1 ; Write all 4 bytes (mask = 0)
+        .endrepeat
+
+        dec copy_counter
+        jne copy_loop
     
     ; Cleanup
     stz FX_CTRL
@@ -435,14 +430,13 @@
     ; x1 divided by 2
     lda line_info+line_data::x1+1
     lsr
-    sta vtemp+1                     ; save high byte
     lda line_info+line_data::x1
     ror
     clc
     adc VERA::ADDR
     sta VERA::ADDR
     sta vtemp
-    lda vtemp+1                     ; high byte
+    lda #0 ; no need to add to the high byte as it will always be 0
     adc VERA::ADDR+1
     sta VERA::ADDR+1
     sta vtemp+1
@@ -450,41 +444,38 @@
     adc VERA::ADDR+2
     ora #VERA::INC1
     sta VERA::ADDR+2                ; y * 160 + x1/2
-    sta vtemp+2
 
     ; set control port 0
     stz VERA::CTRL
+    sta VERA::ADDR+2
+
     lda vtemp
     sta VERA::ADDR
     lda vtemp+1
     sta VERA::ADDR+1
-    lda vtemp+2
-    sta VERA::ADDR+2
-    ; rts
 .endmacro
-
 
 ; ---------------------------------------------------------------
 ; Draw a horizontal line
 ; uses data saved in line_info+line_data struct
-; todo: this could be optimised...
 ; ---------------------------------------------------------------
 .proc draw_line
-    color_shifted = vtemp+2
-    color = vtemp+3
-    x2_minus_8 = vtemp+4
-    x2_minus_2 = vtemp+6
-
     ; *** if y > 199 then return
     lda line_info+line_data::y1+1
-    beq :+
+    beq check_y_low
     rts
-    :
+    check_y_low:
     lda line_info+line_data::y1
-    cmp #<SCREEN_HEIGHT
-    bcc :+
+    cmp #<SCREEN_HEIGHT ; line is not likely to be less than -56 (256 - 200)
+    bcc y_not_high
     rts
-    :
+    y_not_high:
+
+    ; *** if x2 < 0 then return
+    lda line_info+line_data::x2+1
+    bpl x2_not_neg
+    rts
+    x2_not_neg:
 
     ; *** if x1 < 0 then x1 = 0
     lda line_info+line_data::x1+1
@@ -492,35 +483,26 @@
     stz line_info+line_data::x1
     stz line_info+line_data::x1+1
     x1_not_neg:
-    
-    ; *** if x2 < 0 then return
-    lda line_info+line_data::x2+1
-    bpl x2_not_neg
-    rts
-    x2_not_neg:
-   
-    ; note: despite this not being optimal, it's faster than the optimised because there are so many values higher than 320
-    ; *** if x1 > 319 then return (16-bit)
+
+    ; *** if x1 > 319 then return
     lda line_info+line_data::x1+1
-    cmp #>SCREEN_WIDTH
-    bcc x1_ok
-    bne :+
+    beq x1_ok
     lda line_info+line_data::x1
     cmp #<SCREEN_WIDTH
     bcc x1_ok
-    :
     rts
     x1_ok:
 
     ; *** if x2 > 319 then x2 = 319 
     lda line_info+line_data::x2+1
+    beq x2_ok
     cmp #>SCREEN_WIDTH
     bcc x2_ok
-    bne :+
+    bne clamp_x2
     lda line_info+line_data::x2
     cmp #<SCREEN_WIDTH
     bcc x2_ok
-    :
+    clamp_x2:
     lda #<(SCREEN_WIDTH - 1)
     sta line_info+line_data::x2
     lda #>(SCREEN_WIDTH - 1)
@@ -531,16 +513,23 @@
     setup_line 
 
     lda polygon_info+polygon_data::color
+    ; *** if color < $10 then draw solid line
+    cmp #$10
+    jcc draw_line_solid
 
-    ; todo: break out into separate functions and check color before calling
     ; *** if color == $11 then copy from page 0 to current page
-    ; todo: clean up copy code
     cmp #$11
-    bne not_copy
-    ; lda state+engine::draw_page
-    ; bne :+
-    ; rts
-    ; :
+    jeq draw_line_copy
+
+    ; *** if color == $10 then use transparency
+    cmp #$10
+    jeq draw_line_trans 
+
+    end:
+    rts
+.endproc
+
+.proc draw_line_copy ; todo: use FX for this
     ; set VERA::DATA1 to page 0
     lda #1
     sta VERA::CTRL
@@ -549,37 +538,135 @@
     sta VERA::ADDR
     lda y160_lookup_hi,y
     sta VERA::ADDR+1
-    lda VERA::ADDR+2
-    and #$FE
-    sta VERA::ADDR+2
-    lsr16_addr line_info+line_data::x1, 1
-    clc
+
+    lda line_info+line_data::x1+1
+    lsr
     lda line_info+line_data::x1
+    ror ; x1 / 2
+    clc
     adc VERA::ADDR
+    and #%11111100      ; Align to 4-byte boundary
     sta VERA::ADDR
     lda #0
     adc VERA::ADDR+1
     sta VERA::ADDR+1
     lda #0
     adc VERA::ADDR+2
+    and #$FE
+    ora #VERA::INC1
     sta VERA::ADDR+2    ; y * 160 + x1/2
-    stz VERA::CTRL
+    
+    stz VERA::CTRL ; set DATA PORT 0 and DCSEL to 0
 
-    lsr16_addr line_info+line_data::x2, 1
-    ldx line_info+line_data::x1                 ; 3 cycles
-    ; set the pixels
-    loop_copy:
-        lda VERA::DATA1 
+    ; set 4 byte increment
+    lda #VERA::INC4
+    tsb VERA::ADDR+2
+
+    ; set leading mask
+    lda line_info+line_data::x1
+    and #$07
+    tay
+    lda mask_leading,y
+    sta leading_mask
+
+    ; set trailing mask
+    lda line_info+line_data::x2
+    and #$07
+    tay
+    lda mask_trailing,y
+    sta trailing_mask
+
+    ; calc start byte = x1 / 8
+    lsr16_addr line_info+line_data::x1, 3
+
+    ; calc end byte = x2 / 8
+    lsr16_addr line_info+line_data::x2, 3
+
+    ; Set DCSEL to 2 for cache operations
+    set_dcsel 2
+
+    ; if start byte == end byte, then draw a short line
+    lda line_info+line_data::x1
+    cmp line_info+line_data::x2
+    bne long_line
+    ; draw short line
+    lda #(1<<5) ; Cache fill enable
+    sta FX_CTRL
+    lda VERA::DATA1
+    lda VERA::DATA1
+    lda VERA::DATA1
+    lda VERA::DATA1
+    lda #(1<<6) ; Cache write enable
+    sta FX_CTRL
+    lda leading_mask
+    ora trailing_mask
+    sta VERA::DATA0
+    bra end_line
+
+    long_line:
+    ; calc number of loops
+    sec
+    lda line_info+line_data::x2
+    sbc line_info+line_data::x1
+    bcs :+
+    rts        ; Exit if subtraction would underflow
+    :
+    dec
+    bpl :+
+    rts        ; Exit if decrement would underflow
+    :
+    sta num_loops
+
+    ; draw leading mask
+    lda #(1<<5) ; Cache fill enable
+    sta FX_CTRL
+    lda VERA::DATA1
+    lda VERA::DATA1
+    lda VERA::DATA1
+    lda VERA::DATA1
+    lda #(1<<6) ; Cache write enable
+    sta FX_CTRL
+    lda leading_mask
+    sta VERA::DATA0
+
+    ldx num_loops
+    beq no_middle
+    line_loop:
+        lda #(1<<5) ; Cache fill enable
+        sta FX_CTRL
+        lda VERA::DATA1
+        lda VERA::DATA1
+        lda VERA::DATA1
+        lda VERA::DATA1
+        lda #(1<<6) ; Cache write enable
+        sta FX_CTRL
+        lda #0
         sta VERA::DATA0
-        inx                                     ; 2 cycles
-        cpx line_info+line_data::x2             ; 3 cycles
-        bcc loop_copy 
-    rts
-    not_copy:
+        dex
+        bne line_loop
 
-    ; *** if color == $10 then use transparency
-    cmp #$10
-    bne not_transparent 
+    no_middle:
+    ; draw trailing mask
+    lda #(1<<5) ; Cache fill enable
+    sta FX_CTRL
+    lda VERA::DATA1
+    lda VERA::DATA1
+    lda VERA::DATA1
+    lda VERA::DATA1
+    lda #(1<<6) ; Cache write enable
+    sta FX_CTRL
+    lda trailing_mask
+    sta VERA::DATA0
+
+    end_line:
+    ; reset fx control
+    set_dcsel 2
+    stz FX_CTRL
+    set_dcsel 0
+    rts
+.endproc
+
+.proc draw_line_trans ; todo: use FX for this
     lsr16_addr line_info+line_data::x1, 1
     lsr16_addr line_info+line_data::x2, 1
     ldx line_info+line_data::x1                 ; 3 cycles
@@ -592,39 +679,9 @@
         cpx line_info+line_data::x2             ; 3 cycles
         bcc loop_trans                          ; 2 cycles
     rts
-    not_transparent:
-
-    ; *** if color < $10 then draw solid line
-    cmp #$10
-    jcc draw_line_solid
-
-    ; *** two pixel mode    
-    ; ldx polygon_info+polygon_data::color
-    ; lda color_lookup_hi,x
-    ; sta color_shifted
-    ; ora polygon_info+polygon_data::color
-    ; sta color
-    ; jsr setup_line ; todo: use macro instead for less cycles
-    ; lda color
-    ; lsr16_addr line_info+line_data::x1, 1
-    ; lsr16_addr line_info+line_data::x2, 1
-    ; ldx line_info+line_data::x1
-    ; line_loop:
-    ;     sta VERA::DATA0
-    ;     inx
-    ;     cpx line_info+line_data::x2
-    ;     bcc line_loop
-    ; rts
-
-    end:
-    rts
 .endproc
 
 .proc draw_line_solid
-    num_loops = vtemp
-    leading_mask = vtemp+1
-    trailing_mask = vtemp+2
-
     set_dcsel 2
     lda #%01000000   ; set cache write enable
     sta FX_CTRL
@@ -650,6 +707,7 @@
     lda mask_trailing,y
     sta trailing_mask
 
+    ; todo: this can be optimised further
     ; calc start byte = x1 / 8
     lsr16_addr line_info+line_data::x1, 3
 
@@ -657,7 +715,7 @@
     lsr16_addr line_info+line_data::x2, 3
 
     ; if start byte == end byte, then draw a short line
-    lda line_info+line_data::x1
+    lda line_info+line_data::x1 ; can be removed?
     cmp line_info+line_data::x2
     bne long_line
     lda leading_mask
@@ -676,14 +734,15 @@
     dec
     bpl :+
     rts        ; Exit if decrement would underflow
-    :
-    sta num_loops
+    : ; can be removed?
+    ;sta num_loops
+    tax
 
-        ; draw leading mask
+    ; draw leading mask
     lda leading_mask
     sta VERA::DATA0
 
-    ldx num_loops
+    txa
     beq no_middle
     line_loop:
         stz VERA::DATA0
@@ -699,7 +758,8 @@
     ; reset fx control
     set_dcsel 2
     stz FX_CTRL
-    set_dcsel 0
+    ;set_dcsel 0
+    stz VERA::CTRL
 
     rts
 .endproc

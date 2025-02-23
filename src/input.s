@@ -161,15 +161,15 @@ end:
 
     ; Check left/right movement
     ldx #HERO_POS_LEFT_RIGHT
-    stz state+engine::vars,x
-    stz state+engine::vars+256,x
+    stz engine_vars,x
+    stz engine_vars+256,x
 
     lda key_states+1       ; Check RIGHT
     beq @check_left
     ldx #HERO_POS_LEFT_RIGHT
     lda #1
-    sta state+engine::vars,x
-    stz state+engine::vars+256,x
+    sta engine_vars,x
+    stz engine_vars+256,x
     smb0 input_mask        ; Set bit 0 for right
 
 @check_left:
@@ -177,29 +177,29 @@ end:
     beq @check_vertical
     ldx #HERO_POS_LEFT_RIGHT
     lda #$FF              ; -1
-    sta state+engine::vars,x
-    sta state+engine::vars+256,x
+    sta engine_vars,x
+    sta engine_vars+256,x
     smb1 input_mask        ; Set bit 1 for left
 
     ; Check up/down movement
 @check_vertical:
     ldx #HERO_POS_JUMP_DOWN
-    stz state+engine::vars,x
-    stz state+engine::vars+256,x
+    stz engine_vars,x
+    stz engine_vars+256,x
     ldx #HERO_POS_UP_DOWN
-    stz state+engine::vars,x
-    stz state+engine::vars+256,x
+    stz engine_vars,x
+    stz engine_vars+256,x
 
     lda key_states+2       ; Check DOWN
     beq @check_up_state
     ldx #HERO_POS_JUMP_DOWN
     lda #1
-    sta state+engine::vars,x
-    stz state+engine::vars+256,x
+    sta engine_vars,x
+    stz engine_vars+256,x
     ldx #HERO_POS_UP_DOWN
     lda #1
-    sta state+engine::vars,x
-    stz state+engine::vars+256,x
+    sta engine_vars,x
+    stz engine_vars+256,x
     smb2 input_mask        ; Set bit 2 for down
     bra @check_action
 
@@ -208,40 +208,40 @@ end:
     beq @check_action
     ldx #HERO_POS_JUMP_DOWN
     lda #$FF              ; -1
-    sta state+engine::vars,x
-    sta state+engine::vars+256,x
+    sta engine_vars,x
+    sta engine_vars+256,x
     ldx #HERO_POS_UP_DOWN
     lda #$FF              ; -1
-    sta state+engine::vars,x
-    sta state+engine::vars+256,x
+    sta engine_vars,x
+    sta engine_vars+256,x
     smb3 input_mask        ; Set bit 3 for up
 
     ; Check action key
 @check_action:
     ldx #HERO_ACTION
-    stz state+engine::vars,x
-    stz state+engine::vars+256,x
+    stz engine_vars,x
+    stz engine_vars+256,x
     
     lda key_states+4       ; Check ACTION
     beq @store_masks
     ldx #HERO_ACTION
     lda #1
-    sta state+engine::vars,x
-    stz state+engine::vars+256,x
+    sta engine_vars,x
+    stz engine_vars+256,x
     smb7 input_mask        ; Set bit 7 for action
 
 @store_masks:
     ; Store position mask
     ldx #HERO_POS_MASK
     lda input_mask
-    sta state+engine::vars,x
-    stz state+engine::vars+256,x
+    sta engine_vars,x
+    stz engine_vars+256,x
     
     ; Store action/position combined mask
     ldx #HERO_ACTION_POS_MASK
     lda input_mask
-    sta state+engine::vars,x
-    stz state+engine::vars+256,x
+    sta engine_vars,x
+    stz engine_vars+256,x
 
     rts
 .endproc

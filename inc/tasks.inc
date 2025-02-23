@@ -16,3 +16,30 @@ MAX_TASKS = 64
     stack           .res 32
     stack_pos       .res 1
 .endstruct
+
+; ---------------------------------------------------------------
+; Read script byte
+; Returns: A = byte read
+; ---------------------------------------------------------------
+.macro read_script_byte
+    ; todo: we're almost at a point where this could be a macro
+
+    ; note: do we need to use all 32 bits of pointer?
+    ldy #resource::pointer
+    clc
+    lda (state+engine::bytecode),y
+    adc state+engine::bytecode_pos
+    pha ; low byte
+    iny
+    lda (state+engine::bytecode),y
+    adc state+engine::bytecode_pos+1
+    
+    tax ; high byte
+    pla ; low byte
+    ldy #0
+    jsr read_byte
+
+    inc16 state+engine::bytecode_pos
+
+   ; rts ; value is in A
+.endmacro

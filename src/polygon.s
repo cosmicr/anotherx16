@@ -21,7 +21,8 @@
 
 .segment "ZEROPAGE"
     line_info:      .tag line_data  ; for storing line data for drawing
-    ztemp:          .res 2          ; temporary storage for multiply_zoom
+    zoom_temp:      .res 2          ; temporary storage for zoom multiplication
+    zoom_result:    .res 2          ; result of zoom multiplication
     num_children:   .res 1          ; number of children in a group polygon
     poly_ptr:       .res 3          ; pointer to polygon data in memory when parsing
     resource:       .res 2          ; resource memlist pointer for polygon data   
@@ -34,15 +35,8 @@
     left_error:             .res 2
     right_error:            .res 2
 
-.segment "BSS"
+.segment "EXTZP" : zeropage
     polygon_info:   .tag polygon_data   ; for storing polygon data
-    counter:        .res 1              ; counter for reading vertices
-    off:            .res 2              ; offset for group polygon
-    setup:          .res 1              ; setup byte for polygon
-    nx:             .res 2              ; x value for group polygon
-    ny:             .res 2              ; y value for group polygon
-    cx:             .res 2          ; x value for child polygon
-    cy:             .res 2          ; y value for child polygon
 
     ; Rasterizer variables
     count:                  .res 1
@@ -59,6 +53,17 @@
     y_top:                  .res 2
     y_bottom:               .res 2
 
+.segment "BSS"
+    polygons_x:     .res 256            ; x values for vertices (16-bit)
+    polygons_y:     .res 256            ; y values for vertices (16-bit)
+    counter:        .res 1              ; counter for reading vertices
+    off:            .res 2              ; offset for group polygon
+    setup:          .res 1              ; setup byte for polygon
+    nx:             .res 2              ; x value for group polygon
+    ny:             .res 2              ; y value for group polygon
+    cx:             .res 2              ; x value for child polygon
+    cy:             .res 2              ; y value for child polygon
+
 .segment "RODATA"
 
 .segment "CODE"
@@ -73,17 +78,17 @@
 
 .macro get_vertex_x num, addr
     ldx num
-    lda polygon_info+polygon_data::vx,x
+    lda polygons_x,x
     sta addr
-    lda polygon_info+polygon_data::vx+1,x
+    lda polygons_x+1,x
     sta addr+1
 .endmacro
 
 .macro get_vertex_y num, addr
     ldx num
-    lda polygon_info+polygon_data::vy,x
+    lda polygons_y,x
     sta addr
-    lda polygon_info+polygon_data::vy+1,x
+    lda polygons_y+1,x
     sta addr+1
 .endmacro
 
@@ -157,17 +162,17 @@
         read_polygon_byte
         jsr multiply_zoom
         ply
-        sta polygon_info+polygon_data::vx,y ; x value
+        sta polygons_x,y ; x value
         txa
-        sta polygon_info+polygon_data::vx+1,y
+        sta polygons_x+1,y
 
         phy
         read_polygon_byte
         jsr multiply_zoom
         ply
-        sta polygon_info+polygon_data::vy,y ; y value
+        sta polygons_y,y ; y value
         txa
-        sta polygon_info+polygon_data::vy+1,y
+        sta polygons_y+1,y
 
         iny
         iny
@@ -222,7 +227,7 @@
         push num_children
         push16 polygon_info+polygon_data::width
         push16 polygon_info+polygon_data::height
-        push polygon_info+polygon_data::zoom
+        push16 polygon_info+polygon_data::zoom
         push16 polygon_info+polygon_data::center_x
         push16 polygon_info+polygon_data::center_y
 
@@ -267,7 +272,7 @@
         ; restore the polygon_data
         pop16 polygon_info+polygon_data::center_y
         pop16 polygon_info+polygon_data::center_x
-        pop polygon_info+polygon_data::zoom
+        pop16 polygon_info+polygon_data::zoom
         pop16 polygon_info+polygon_data::height
         pop16 polygon_info+polygon_data::width
         pop num_children
@@ -279,42 +284,40 @@
     rts
 .endproc
 
+; A: low byte of value to multiply
 .proc multiply_zoom
-    result = ztemp
-    zoom = ztemp+1
-    
-    ldx polygon_info+polygon_data::zoom
-    cpx #64
-    beq no_zoom     ; Skip multiplication if zoom factor is 64
-    
-    cpx #203        ; Check for large zoom factor
-    bcs max_value   ; If zoom >= 204, return maximum value
+    sta zoom_result
+    stz zoom_result+1
 
-    ; Normal multiplication for smaller values
-    sta result      
-    stx zoom        
-    mulx_addr result, zoom
-    stx result+1
+    lda polygon_info+polygon_data::zoom
+    sta zoom_temp
+    lda polygon_info+polygon_data::zoom+1
+    sta zoom_temp+1
+    ; todo: this actually slows down execution for some reason
+    ; cmp #0
+    ; jne continue
+    ; lda zoom_temp
+    ; cmp #64
+    ; jne continue
+
+    continue:
+    mulx_addr zoom_result, zoom_temp ; todo: since this is only used once, might as well inline it
+    stx zoom_result+1
 
     ; Division by 64
-    lsr result+1    
+    lsr zoom_result+1    
     ror             
-    lsr result+1    
+    lsr zoom_result+1    
     ror             
-    lsr result+1    
+    lsr zoom_result+1    
     ror             
-    lsr result+1    
+    lsr zoom_result+1    
     ror             
-    lsr result+1    
+    lsr zoom_result+1    
     ror             
-    lsr result+1    
+    lsr zoom_result+1    
     ror             
-    ldx result+1    
-    rts
-
-max_value:
-    lda #$FF        ; 65535 >> 6 = 1023
-    ldx #$03        
+    ldx zoom_result+1    
     rts
 
 no_zoom:
@@ -491,14 +494,14 @@ no_zoom:
         sbc y_top+1
         sta seg_height+1
         
-        ; If height is negative (y_bottom < y_top) or zero, skip segment
-        ; lda seg_height     ; Load low byte
-        ; ora seg_height+1   ; OR with high byte
-        ; jeq segment_done   ; Branch if zero ; todo: draw a horizontal line instead
-        ; bit seg_height+1   
-        ; jmi segment_done   ; Branch if negative
+        ; If height is negative (y_bottom < y_top) or zero, skip segment 545 147
+        lda seg_height     ; Load low byte
+        ora seg_height+1   ; OR with high byte
+        jeq segment_done   ; Branch if zero
+        bit seg_height+1   
+        jmi segment_done   ; Branch if negative
 
-        ; Initialize error terms ; todo: would it be faster if they started at dy/2 or similar?
+        ; Initialize error terms 
         stz left_error
         stz left_error+1
         stz right_error

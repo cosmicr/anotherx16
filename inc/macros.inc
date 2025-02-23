@@ -245,29 +245,115 @@ end:
 .endscope
 .endmacro
 
-
 ; Multiply two 8 bit values fast, result in A and X (clobbers variables and Y too)
+; .macro mulx_addr addra, addrb
+; .scope
+;     lda #0          ; Clear accumulator for result
+;     ldx #0          ; Clear X register for high byte
+;     stz mtemp       ; Clear mtemp
+;     ldy #8          ; 8 iterations
+; multiply_loop:
+;     ; Check if we need to add
+;     lsr addrb       ; Get lowest bit into carry
+;     bcc no_add      ; Skip addition if bit was 0
+    
+;     ; Add shifted value
+;     clc
+;     adc addra       ; Add low byte
+;     pha             ; Save A
+;     txa             ; Get high byte
+;     adc mtemp       ; Add high byte with carry
+;     tax             ; Put back in X
+;     pla             ; Restore A
+
+; no_add:
+;     asl addra       ; Shift multiplicand left
+;     rol mtemp       ; Rotate carry into high byte
+    
+;     dey             ; Next iteration
+;     bne multiply_loop ; Loop until done
+; done:               ; Result: A = low byte, X = high byte
+; .endscope
+; .endmacro
+
 .macro mulx_addr addra, addrb
 .scope
-  lda #0
-  stz mtemp ; requires a zeropage variable
-  ldx #0
-  beq start
-addition:
-  clc
-  adc addra
-  tay
-  txa
-  adc mtemp
-  tax
-  tya
-loop:
-  asl addra
-  rol mtemp
-start:
-  lsr addrb
-  bcs addition
-  bne loop
+    ; Save original cache values
+    lda FX_CACHE_L
+    pha
+    lda FX_CACHE_M
+    pha
+    lda FX_CACHE_H
+    pha
+    lda FX_CACHE_U
+    pha
+
+    ; DCSEL = 2 for FX control registers
+    lda #(2 << 1)
+    sta VERA::CTRL
+    
+    ; Clear FX control and enable multiplier
+    stz FX_CTRL
+    lda #%00010000      ; Enable multiplier
+    sta FX_MULT
+    
+    ; DCSEL = 6 for cache registers
+    lda #(6 << 1)
+    sta VERA::CTRL
+    
+    ; Reset accumulator
+    lda FX_CACHE_L ;FX_ACCUM_RESET
+    
+    ; Load numbers into cache
+    lda addra
+    sta FX_CACHE_L      ; First number low byte
+    lda addra+1
+    sta FX_CACHE_M      ; First number high byte (0 for 8-bit)
+    lda addrb
+    sta FX_CACHE_H      ; Second number low byte
+    lda addrb+1
+    sta FX_CACHE_U      ; Second number high byte (0 for 8-bit)
+    
+    ; Back to DCSEL = 2 for writing result
+    lda #(2 << 1)
+    sta VERA::CTRL
+    
+    ; Enable cache write
+    lda #%01000000      ; Cache Write Enable
+    sta FX_CTRL
+    
+    ; Set up VRAM address to $1F9B0
+    lda #$B0            ; Low byte
+    sta VERA::ADDR
+    lda #$F9            ; Middle byte
+    sta VERA::ADDR+1
+    lda #$01            ; High byte (no increment)
+    sta VERA::ADDR+2
+
+    ; Trigger multiply and write
+    stz VERA::DATA0
+    
+    ; Set increment to read result
+    lda #%00010001      ; Increment 1 + high nibble of bank
+    sta VERA::ADDR+2
+    
+    ; Read result into A (low) and X (high)
+    lda VERA::DATA0     ; Low byte
+    ldx VERA::DATA0     ; High byte
+    
+    ; Cleanup
+    stz FX_MULT
+    stz FX_CTRL
+    
+    ; Restore cache values
+    ply
+    sty FX_CACHE_U
+    ply
+    sty FX_CACHE_H
+    ply
+    sty FX_CACHE_M
+    ply
+    sty FX_CACHE_L
 .endscope
 .endmacro
 

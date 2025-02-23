@@ -40,7 +40,7 @@
 ; Set immediate value to a variable
 ; ---------------------------------------------------------------
 .proc opcode_00_SETI
-    jsr read_script_byte
+    read_script_byte
     pha ; var
 
     jsr read_script_word
@@ -49,9 +49,9 @@
 
     ply
     lda temp
-    sta state+engine::vars,y ; val lo is already in A
+    sta engine_vars,y ; val lo is already in A
     lda temp+1
-    sta state+engine::vars+256,y
+    sta engine_vars+256,y
     
     rts
 .endproc
@@ -64,10 +64,10 @@
     jsr read_script_word
     tay ; src is in x, dst in y
     
-    lda state+engine::vars,x
-    sta state+engine::vars,y
-    lda state+engine::vars+256,x
-    sta state+engine::vars+256,y
+    lda engine_vars,x
+    sta engine_vars,y
+    lda engine_vars+256,x
+    sta engine_vars+256,y
     rts
 .endproc
 
@@ -80,12 +80,12 @@
     tay ; src is in x, dst in y
 
     clc
-    lda state+engine::vars,x
-    adc state+engine::vars,y
-    sta state+engine::vars,y
-    lda state+engine::vars+256,x
-    adc state+engine::vars+256,y
-    sta state+engine::vars+256,y
+    lda engine_vars,x
+    adc engine_vars,y
+    sta engine_vars,y
+    lda engine_vars+256,x
+    adc engine_vars+256,y
+    sta engine_vars+256,y
 
     rts
 .endproc
@@ -95,7 +95,7 @@
 ; Add immediate value to a variable
 ; ---------------------------------------------------------------
 .proc opcode_03_ADDC
-    jsr read_script_byte
+    read_script_byte
     pha ; var
 
     jsr read_script_word
@@ -104,12 +104,12 @@
 
     plx
     clc
-    lda state+engine::vars,x
+    lda engine_vars,x
     adc temp
-    sta state+engine::vars,x
-    lda state+engine::vars+256,x
+    sta engine_vars,x
+    lda engine_vars+256,x
     adc temp+1
-    sta state+engine::vars+256,x
+    sta engine_vars+256,x
 
     rts
 .endproc
@@ -240,7 +240,7 @@
 .proc opcode_08_SETVEC
     addr = work+2
     ; Read the task number
-    jsr read_script_byte
+    read_script_byte
     asl
     tax
     lda task_lookup,x
@@ -269,7 +269,7 @@
 .proc opcode_09_DJNZ
     addr = temp
     ; Read the variable num
-    jsr read_script_byte
+    read_script_byte
     pha
 
     ; Read the address to jump to
@@ -279,15 +279,15 @@
 
     ; Decrement the variable
     plx
-    lda state+engine::vars,x
+    lda engine_vars,x
     bne :+                          ; decrement if not zero
-    dec state+engine::vars+256,x    ; otherwise decrement both
+    dec engine_vars+256,x    ; otherwise decrement both
     : 
-    dec state+engine::vars,x
+    dec engine_vars,x
 
     ; Check if the result is zero
-    lda state+engine::vars,x
-    ora state+engine::vars+256,x
+    lda engine_vars,x
+    ora engine_vars+256,x
     beq @end ; result is zero
 
     ; If not zero, jump to the specified address
@@ -312,53 +312,50 @@
     jump_addr = work+5
 
     ; Read the condition type from the script
-    jsr read_script_byte
+    jsr read_script_word
     sta cond_type
 
     ; Read the variable index for the right operand and load its value
-    jsr read_script_byte
-    tax
-    lda state+engine::vars,x
+    ; index is in X (from word read above)
+    lda engine_vars,x
     sta right_val
-    lda state+engine::vars+256,x
+    lda engine_vars+256,x
     sta right_val+1
 
     ; Check the condition type to determine how to read the left operand
     lda cond_type
     bit #$80            ; if cond_type & 0x80
-    bne @read_left_var  ; bit 7 is set
+    bne read_left_var  ; bit 7 is set
     and #$40            ; else if cond_type & 0x40
-    bne @read_left_word
+    bne read_left_word
 
     ; Read an 8-bit immediate value for the left operand
-    jsr read_script_byte
+    read_script_byte
     sta left_val
     stz left_val+1
-    bra @read_jump_addr
+    bra read_jump_addr
 
-@read_left_var:
+read_left_var:
     ; Read a variable index and load its value for the left operand
-    jsr read_script_byte
+    read_script_byte
     tax
-    lda state+engine::vars,x
+    lda engine_vars,x
     sta left_val
-    lda state+engine::vars+256,x
+    lda engine_vars+256,x
     sta left_val+1
-    bra @read_jump_addr
+    bra read_jump_addr
 
-@read_left_word:
+read_left_word:
     ; Read a signed 16-bit immediate value for the left operand
-    jsr read_script_byte
+    jsr read_script_word
     sta left_val+1
-    jsr read_script_byte
-    sta left_val
+    stx left_val
 
-@read_jump_addr:
+read_jump_addr:
     ; Read the jump address from the script
-    jsr read_script_byte
+    jsr read_script_word
     sta jump_addr+1
-    jsr read_script_byte
-    sta jump_addr
+    stx jump_addr
 
     ; Use a jump table based on the lower 3 bits of the condition type
     lda cond_type
@@ -493,9 +490,8 @@ jump_table:
 ; CCTRL start, end, state
 ; ---------------------------------------------------------------
 .proc opcode_0C_CCTRL
-;stp
     ; Read the start task number and set task_ptr
-    jsr read_script_byte
+    read_script_byte
     pha ; save for counting
     asl
     tax
@@ -551,8 +547,8 @@ jump_table:
 ; SELECTP num
 ; ---------------------------------------------------------------
 .proc opcode_0D_SELECTP
-    jsr read_script_byte
-    jsr get_page
+    read_script_byte
+    get_page
     sta state+engine::draw_page
     rts
 .endproc
@@ -563,7 +559,7 @@ jump_table:
 .proc opcode_0E_FILLP
     jsr read_script_word
     phx ; second byte is color
-    jsr get_page
+    get_page
     tax
     set_addr_page
     pla
@@ -579,48 +575,40 @@ jump_table:
     src = temp
     dst = work+1
     vscroll = state+engine::vscroll
-
-    jsr read_script_byte
-    sta src
-    jsr read_script_byte
-    sta dst
-
-    jsr get_page
-    sta dst
-    tax ; save dst for copy_page
-
-    ; if (src >= 0xfe)
-    cmp_lt src, #$fe, @vscroll_copy
-    jsr get_page
-    jsr copy_page   ; A = src, X = dst
-    rts
-
-    @vscroll_copy:
-    and #$80
-    bne :+          ; don't clear vscroll if bit 7 is set
-    stz vscroll
-    :
-
+    jsr read_script_word
+    sta src         ; store src for vscroll path
+    txa
+    get_page
+    sta dst         ; store dst for comparison
+    
+    ; Quick check for normal path first
     lda src
-    and #3
-    jsr get_page
-    sta src
-
-    cmp dst
-    beq @skip_copy
-
-    lda vscroll
-    bne @copy_vscroll
-    lda src
+    cmp #$FE
+    bcc vscroll_rare
+    
+    ; Normal path
+    get_page 
     ldx dst
     jsr copy_page
-    rts
+    rts 
 
-    @copy_vscroll:
-stp
+    vscroll_rare: 
+    ; Check if we need to clear vscroll (if bit 7 clear)
+    bit #$80 
+    bmi skip_clear 
+    stz vscroll
 
+    skip_clear:
+    lda src
+    and #3               ; mask to page number
+    get_page 
+    sta src
+    cmp dst
+    beq done
+    ldx dst
+    jsr copy_page
     
-    @skip_copy:
+    done:
     rts
 .endproc
 
@@ -628,13 +616,14 @@ stp
 ; BLITP num
 ; ---------------------------------------------------------------
 .proc opcode_10_BLITP
-    stz state+engine::vars+$f7
-    stz state+engine::vars+256+$f7
-    jsr read_script_byte
+    stz engine_vars+$f7
+    stz engine_vars+256+$f7
+    read_script_byte
     jsr update_display
     ;inc16 frame_counter
-    ; todo: game is faster without vsync, but not accurate
-    wai ; this will wait at 60hz, but original game was 50hz
+    ; todo: game is way faster without vsync, but not accurate
+    ; note: we probably don't even need to wait for vsync since we're page flipping
+    ; wai ; this will wait at 60hz, but original game was 50hz
     rts
 .endproc
 
@@ -658,21 +647,22 @@ stp
     x_pos = work+2
     y_pos = work+3
     color = work+4
-    ; untested
-    jsr read_script_byte
+    ; todo: use read_script_word (and also update everything here)
+    read_script_byte
     sta num+1
-    jsr read_script_byte
+    read_script_byte
     sta num
-    jsr read_script_byte
+    read_script_byte
     asl
     sta x_pos
-    jsr read_script_byte
+    read_script_byte
     lsr
     lsr
     sta y_pos
-    jsr read_script_byte
+    read_script_byte
     sta color
-
+rts
+    ; *** todo: use bitmap fonts instead of text mode
     ; set the cursor position
     ldy y_pos
     lda charmap_row_lookup,y
@@ -763,19 +753,17 @@ stp
 ; SUB var1, var2
 ; ---------------------------------------------------------------
 .proc opcode_13_SUB
-    jsr read_script_byte
-    pha ; dst
-    jsr read_script_byte
-    tay ; src
+    jsr read_script_word
+    tay ; dst is in Y
+    ; src is in X
 
-    plx ; dst
     sec
-    lda state+engine::vars,x
-    sbc state+engine::vars,y
-    sta state+engine::vars,x
-    lda state+engine::vars+256,x
-    sbc state+engine::vars+256,y
-    sta state+engine::vars+256,x
+    lda engine_vars,y
+    sbc engine_vars,x
+    sta engine_vars,y
+    lda engine_vars+256,y
+    sbc engine_vars+256,x
+    sta engine_vars+256,y
 
     rts
 .endproc
@@ -784,20 +772,19 @@ stp
 ; AND var, val
 ; ---------------------------------------------------------------
 .proc opcode_14_AND
-    jsr read_script_byte
-    pha
-    jsr read_script_byte
-    sta work+1
-    jsr read_script_byte
-    sta work
+    read_script_byte
+    pha ; var num dst
+    jsr read_script_word
+    sta work+1 ; val hi
+    stx work ; val lo
     
-    plx
-    lda state+engine::vars,x
+    ply
+    lda engine_vars,y
     and work
-    sta state+engine::vars,x
-    lda state+engine::vars+256,x
+    sta engine_vars,y
+    lda engine_vars+256,y
     and work+1
-    sta state+engine::vars+256,x
+    sta engine_vars+256,y
 
     rts
 .endproc
@@ -806,20 +793,19 @@ stp
 ; OR var, val
 ; ---------------------------------------------------------------
 .proc opcode_15_OR
-    jsr read_script_byte
+    read_script_byte
     pha
-    jsr read_script_byte
-    sta work+1
-    jsr read_script_byte
-    sta work
-
-    plx
-    lda state+engine::vars,x
+    jsr read_script_word
+    sta work+1 ; val hi
+    stx work ; val lo
+    
+    ply
+    lda engine_vars,y
     ora work
-    sta state+engine::vars,x
-    lda state+engine::vars+256,x
+    sta engine_vars,y
+    lda engine_vars+256,y
     ora work+1
-    sta state+engine::vars+256,x
+    sta engine_vars+256,y
 
     rts
 .endproc
@@ -828,22 +814,21 @@ stp
 ; SHL var, val
 ; ---------------------------------------------------------------
 .proc opcode_16_SHL
-    jsr read_script_byte
+    read_script_byte
     pha
-    jsr read_script_byte
-    sta work+1
-    jsr read_script_byte
-    sta work
+    jsr read_script_word
+    sta work+1 ; val hi (gets ignored)
+    stx work ; val lo
 
     lda work
-    and #$0F
-    tay
+    and #$0F ; no shifting by more than 15
+    tay ; shift count
     beq @end
 
     plx
     @shift_loop:
-        asl state+engine::vars,x
-        rol state+engine::vars+256,x
+        asl engine_vars,x
+        rol engine_vars+256,x
         dey
         bne @shift_loop
 
@@ -855,12 +840,11 @@ stp
 ; SHR var, val
 ; ---------------------------------------------------------------
 .proc opcode_17_SHR
-    jsr read_script_byte
+    read_script_byte
     pha
-    jsr read_script_byte
-    sta work+1
-    jsr read_script_byte
-    sta work
+    jsr read_script_word
+    sta work+1 ; val hi (gets ignored)
+    stx work ; val lo
 
     lda work
     and #$0F
@@ -869,10 +853,10 @@ stp
 
     plx
     @shift_loop:
-        lda state+engine::vars+256,x
+        lda engine_vars+256,x
         cmp #$80 ; sets carry if bit 7 is set
-        ror state+engine::vars+256,x
-        ror state+engine::vars,x
+        ror engine_vars+256,x
+        ror engine_vars,x
         dey
         bne @shift_loop
 
@@ -888,19 +872,19 @@ stp
     freq = work+2
     volume = work+3
     channel = stemp+2
-    jsr read_script_byte
+    read_script_byte
     sta num+1
-    jsr read_script_byte
+    read_script_byte
     sta num
 
-    jsr read_script_byte
+    read_script_byte
     sta freq
 
-    jsr read_script_byte
+    read_script_byte
     lsr_a 4
     sta volume
 
-    jsr read_script_byte
+    read_script_byte
     sta channel
 
     lda num
@@ -917,11 +901,10 @@ rts ; todo: lots of sound issues
 ; ---------------------------------------------------------------
 .proc opcode_19_LOAD
     num = temp
-    jsr read_script_byte
+    jsr read_script_word
     sta num+1
-    jsr read_script_byte
-    sta num
-    
+    stx num
+
     ; if (num>16000) state+engine::next_part = num-16000
     lda num+1
     cmp #$3e
@@ -942,13 +925,18 @@ rts ; todo: lots of sound issues
 ; MUSIC num, period, position */
 ; ---------------------------------------------------------------
 .proc opcode_1A_MUSIC
-    jsr read_script_byte
-    jsr read_script_byte
-    ;sta state+engine::music_num
-    jsr read_script_byte
-    jsr read_script_byte
-    ;sta state+engine::music_period
-    jsr read_script_byte
-    ;sta state+engine::music_position
+    ; read_script_byte
+    ; read_script_byte
+    ; ;sta state+engine::music_num
+    ; read_script_byte
+    ; read_script_byte
+    ; ;sta state+engine::music_period
+    ; read_script_byte
+    ; ;sta state+engine::music_position
+
+    ; todo: music, temporary until implementation:
+    jsr read_script_word
+    jsr read_script_word
+    read_script_byte
     rts
 .endproc

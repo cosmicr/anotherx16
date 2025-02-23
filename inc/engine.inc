@@ -4,15 +4,34 @@
 ; ---------------------------------------------------------------
 
 .global init_engine, init_game, get_page, set_part
-.global state, tasks, part_resources, update_display
+.global engine_vars, tasks, part_resources, update_display
 .global set_var
+.globalzp state
+
+.macro get_page
+.scope
+    cmp #$FE
+    bcc done ; if page number is less than $FE then return the page number
+    beq get_display_page
+    
+    ; if page number is $FF then return the current buffer_page
+    lda state+engine::buffer_page
+    bra done
+    
+    ; if page number is $FE then return the current display_page
+    get_display_page:
+    lda state+engine::display_page
+   
+    done:
+.endscope
+.endmacro
 
 .macro set_var index, value
     ldx #index
     lda #<value
-    sta state+engine::vars,x
+    sta engine_vars,x
     lda #>value
-    sta state+engine::vars+256,x
+    sta engine_vars+256,x
 .endmacro
 
 ; todo: consider moving everything to ZP except for vars for speed
@@ -24,8 +43,6 @@
     vscroll         .res 1
 
     next_palette    .res 1
-
-    vars            .res 512
 
     bytecode_pos    .res 2
     current_task    .res 1
