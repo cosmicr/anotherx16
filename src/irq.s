@@ -46,8 +46,6 @@
     lda #>irq_handler
     sta IRQVec+1
 
-    jsr init_audio
-
     cli               ; Enable interrupts
 
     rts

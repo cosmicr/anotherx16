@@ -304,12 +304,12 @@
     sta polygon_info+polygon_data::offset
     asl16_addr polygon_info+polygon_data::offset, 1 ; offset *= 2
 
-    read_script_byte
+    jsr read_script_word
     sta polygon_info+polygon_data::center_x
     stz polygon_info+polygon_data::center_x+1
-    read_script_byte
-    sta polygon_info+polygon_data::center_y
+    stx polygon_info+polygon_data::center_y
     stz polygon_info+polygon_data::center_y+1
+    txa
 
     ; x_val += y_val-199 if y_val > 199
     ; note: this must by 199, because it is hardcoded in the engine
@@ -338,7 +338,7 @@
     stz polygon_info+polygon_data::zoom+1
     lda #$FF
     sta polygon_info+polygon_data::color
-    jsr parse_polygon
+    jmp parse_polygon
 
     rts
 .endproc
@@ -407,10 +407,9 @@
 
         ; Both bits 3 and 2 are clear (0b00)
         ; Execute y_16bit_immediate
-        read_script_byte
+        jsr read_script_word
         sta polygon_info+polygon_data::center_y+1
-        read_script_byte
-        sta polygon_info+polygon_data::center_y
+        stx polygon_info+polygon_data::center_y
         bra get_zoom
 
     y_from_var:
@@ -478,7 +477,7 @@
         lda #$FF
         sta polygon_info+polygon_data::color
 
-    jsr parse_polygon
+    jmp parse_polygon
 
     rts
 .endproc

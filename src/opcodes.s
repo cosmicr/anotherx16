@@ -490,6 +490,7 @@ jump_table:
 ; CCTRL start, end, state
 ; ---------------------------------------------------------------
 .proc opcode_0C_CCTRL
+stp
     ; Read the start task number and set task_ptr
     read_script_byte
     pha ; save for counting
@@ -620,10 +621,6 @@ jump_table:
     stz engine_vars+256+$f7
     read_script_byte
     jsr update_display
-    ;inc16 frame_counter
-    ; todo: game is way faster without vsync, but not accurate
-    ; note: we probably don't even need to wait for vsync since we're page flipping
-    ; wai ; this will wait at 60hz, but original game was 50hz
     rts
 .endproc
 
@@ -887,10 +884,10 @@ rts
     read_script_byte
     sta channel
 
+
     lda num
     ldx freq
     ldy volume
-rts ; todo: lots of sound issues
     jsr play_sample
 
     rts

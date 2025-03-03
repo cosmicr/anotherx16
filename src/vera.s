@@ -36,7 +36,8 @@
 .include "text.inc"
 
 
-; todo: clean up zero page variables
+; TODO *** CHANGE SCREEN RESOLUTION TO 256x192 ***
+
 .segment "EXTZP" : zeropage
     vtemp:              .res 4
     ; palette
@@ -47,11 +48,13 @@
     num_loops:          .res 1
     leading_mask:       .res 1
     trailing_mask:      .res 1
-    ; copy page
-    copy_counter:       .res 1
 
 .segment "DATA"
     copy_active:        .byte 0
+
+.segment "BSS"
+    ; copy page
+    copy_counter:       .res 1
 
 .segment "RODATA"
     y160_lookup_lo:
@@ -176,6 +179,7 @@
 ; Page address is A * 30720
 ; ---------------------------------------------------------------
 .proc set_vera_page
+    ; wai ; todo: uncomment once frame rate is acceptable
     stz VERA::CTRL
     tax
     lda page_values,x
@@ -341,7 +345,7 @@
     CACHE_OPS = 300      ; *must* be 30 or larger
     ; todo: consider doing interleaved copies? might not look as good though
     ; note: if we can gain some cycles elsewhere, maybe we can increase this number
-    
+
     ; set up source
     tay
     lda page_base_lo,y

@@ -43,7 +43,8 @@
     ; Set video modes and clear screen
     jsr init_vera
     ; Setup keyboard and audio
-    jsr init_irq 
+    ;jsr init_irq 
+    ;jsr init_audio
     ; Load game resources
     jsr init_resources
     ; Initialize engine state

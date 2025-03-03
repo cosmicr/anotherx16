@@ -208,7 +208,11 @@ STARTING_PART = 1
 ; Update Display - updates the specified display page
 ; A: page number
 ; ---------------------------------------------------------------
+frame_counter:
+    .byte 0,0,0
+.export frame_counter
 .proc update_display
+    inc24 frame_counter
     cmp #$fe
     beq set_next_palette
 

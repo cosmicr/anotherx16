@@ -2,16 +2,16 @@
 ; sample.inc
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
-
 .globalzp stemp
-.global play_sample, init_irq, remove_irq, update_audio, init_audio
+.global init_audio, load_sample, play_sample, update_audio
+.global init_irq, remove_irq
 
+NUM_CHANNELS = 4
 
-.struct chan_data
-    start           .res 4
-    end             .res 4
-    done            .res 1
-    available       .res 1
-.endstruct
-
-
+.struct CHANNEL
+    start       .res 4
+    end         .res 4
+    playing     .res 1
+    frequency   .res 1
+    volume      .res 1
+.endstruct 

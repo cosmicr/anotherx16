@@ -3,8 +3,6 @@
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
 
-.macpack longbranch
-
 ; X16 and CBM includes
 .include "cx16.inc"
 .include "cbm_kernal.inc"
@@ -17,15 +15,17 @@
 .include "bank.inc"
 
 .segment "ZEROPAGE"
-    stemp:          .res 3
+    stemp:              .res 4
+    sample_resource:    .res 2
 
 .segment "DATA"
     audio_ready:    .byte 0
 
-.segment "BSS"
     channels:
-    channel1:       .tag chan_data
-    channel2:       .tag chan_data
+    channel1:         .tag CHANNEL
+    channel2:         .tag CHANNEL
+    channel3:         .tag CHANNEL
+    channel4:         .tag CHANNEL
 
 .segment "RODATA"
     ; formula is: int(128 * freq / 48828.125)
@@ -36,291 +36,224 @@
         .byte 26, 28, 29, 30, 32, 34, 36, 38
         .byte 40, 43, 45, 48, 51, 54, 58, 62
 
-
 .segment "CODE"
 
+;;; TODO: *** MASSIVE CHANGES HERE, GO BACK TO ONE CHANNEL ***
+; use the 2-channel stereo mode, or even just 1 channel and keep it simple?
+; consider megadrive audio for music (if we have the speed)
+
 ; ---------------------------------------------------------------
-; Setup Interrupt for AFLOW (Low FIFO buffer)
+; Initialize audio system
 ; ---------------------------------------------------------------
 .proc init_audio
-    ; set both channels as not done
-    stz channel1+chan_data::done
-    stz channel2+chan_data::done
-    stz channel1+chan_data::available
-    stz channel2+chan_data::available
-
-    ; reset FIFO
-    lda #$80
+    ; Initialize VERA audio
+    stz VERA::PCM::DATA
+    lda #$0F                        ; Set volume to zero initially
     sta VERA::PCM::CTRL
+    lda #((44100 * 128) / 48828)    ; Set sample rate to approx 44.1kHz
+    sta VERA::PCM::RATE
+
+    ; Clear all channels
+    ldx #(.sizeof(CHANNEL) * NUM_CHANNELS)
+    clear_loop:
+        stz channels,x
+        dex
+        bpl clear_loop
 
     lda #1
     sta audio_ready
-
     rts
 .endproc
 
 ; ---------------------------------------------------------------
-; Play a sample (updated version)
+; Play a sample
 ; A: Resource number
 ; X: Frequency
 ; Y: Volume
 ; ---------------------------------------------------------------
 .proc play_sample
-    freq = stemp+2
-    volume = stemp+3
-    stx freq
-    sty volume
+rts 
+    phx ; save frequency
 
-    ; Get offset into resource info table and store in stemp
-    tax
+    ; Get resource info
+    tax ; X = resource number
     lda #<resource_table
-    sta stemp
+    sta sample_resource
     lda #>resource_table
-    sta stemp+1
+    sta sample_resource+1
 
-    @table_loop:
+    ; Calculate resource offset in table
+    offset_loop:
         clc
         lda #.sizeof(resource)
-        adc stemp
-        sta stemp
+        adc sample_resource
+        sta sample_resource
         lda #0
-        adc stemp+1
-        sta stemp+1
+        adc sample_resource+1
+        sta sample_resource+1
         dex
-        bne @table_loop
+        bne offset_loop
+    ; sample_resource now points to the resource info
 
-    ; Find an available channel
-    lda channel1+chan_data::available
-    bne :+
-    lda #1
-    sta channel1+chan_data::available
+    ; Find a free channel
     ldx #0
-    bra found_channel
-    :
-    lda channel2+chan_data::available
-    bne :+
-    lda #1
-    sta channel2+chan_data::available
-    ldx #.sizeof(chan_data)
-    bra found_channel
-    :
-    bra finished
+    lda channel1+CHANNEL::playing
+    beq found_channel
+    ldx #(.sizeof(CHANNEL) * 1)
+    lda channel2+CHANNEL::playing
+    beq found_channel
+    ldx #(.sizeof(CHANNEL) * 2)
+    lda channel3+CHANNEL::playing
+    beq found_channel
+    ldx #(.sizeof(CHANNEL) * 3)
+    lda channel4+CHANNEL::playing
+    beq found_channel
+    rts ; No free channels
+
     found_channel:
-
-    ; Set channel as playing
-    stz channels+chan_data::done,x
-    
-    ; Load sample data
+    ; Copy resource info to channel
+    tya
+    sta channels+CHANNEL::volume,x
+    ; exit if resource not loaded
+    ldy #resource::status
+    lda (sample_resource),y
+    bne :+
+    stp
+    rts
+    :
+    ; set start address
     ldy #resource::pointer
-    lda (stemp), y
-    sta channels+chan_data::start,x
+    lda (sample_resource),y
+    sta channels+CHANNEL::start,x
     iny
-    lda (stemp), y
-    sta channels+chan_data::start+1,x
+    lda (sample_resource),y
+    sta channels+CHANNEL::start+1,x
     iny
-    lda (stemp), y
-    sta channels+chan_data::start+2,x
+    lda (sample_resource),y
+    sta channels+CHANNEL::start+2,x
     iny
-    lda (stemp), y
-    sta channels+chan_data::start+3,x
-
-    ; Set end address for the sample
+    lda (sample_resource),y
+    sta channels+CHANNEL::start+3,x
+    ; set end address
     clc
     ldy #resource::uncompressed
-    lda (stemp), y
-    adc channels+chan_data::start,x
-    sta channels+chan_data::end,x
+    lda (sample_resource),y
+    adc channels+CHANNEL::start,x
+    sta channels+CHANNEL::end,x
     iny
-    lda (stemp), y
-    adc channels+chan_data::start+1,x
-    sta channels+chan_data::end+1,x
+    lda (sample_resource),y
+    adc channels+CHANNEL::start+1,x
+    sta channels+CHANNEL::end+1,x
     iny
-    lda (stemp), y
-    adc channels+chan_data::start+2,x
-    sta channels+chan_data::end+2,x
-    iny
-    lda (stemp), y
-    adc channels+chan_data::start+3,x
-    sta channels+chan_data::end+3,x
+    lda (sample_resource),y
+    adc channels+CHANNEL::start+2,x
+    sta channels+CHANNEL::end+2,x
+    ; set frequency
+    pla
+    sta channels+CHANNEL::frequency,x
+    ; set playing flag
+    lda #1
+    sta channels+CHANNEL::playing,x
 
-    ; Set volume control
-    lda volume
-    ora #%00010000          ; Set bit 4 for stereo
-    sta VERA::PCM::CTRL     ; Bits 0-3: volume, bit 4: stereo, bit 5: 16-bit
-
-    ; Set sample rate to 0 to stop playback initially
-    ; check nothing is playing
-    lda channel1+chan_data::done
-    ora channel2+chan_data::done
-    bne :+ ; something is playing
-    stz VERA::PCM::RATE     
-    :
-
-    ; Fill FIFO initially
-    jsr fill_fifo
-
-    ; Set sample rate for playback
-    ldx freq
-    lda pcm_freq_table, x
-    sta VERA::PCM::RATE
-
-    finished:
     rts
 .endproc
 
 ; ---------------------------------------------------------------
-; IRQ handler for AFLOW (Low FIFO buffer)
+; Update audio - called from IRQ
 ; ---------------------------------------------------------------
 .proc update_audio
-    ; If audio is not ready, exit
+    ; Skip if audio not ready
     lda audio_ready
     beq done
 
-    ; check if AFLOW is enabled
-    lda VERA::IRQ_FLAGS
-    and #%00001000       ; Check bit 3: AFLOW
-    beq done        ; FIFO isn't low, exit
-
-    ; If both channels are available, then there's nothign playing
-    lda channel1+chan_data::available
-    ora channel2+chan_data::available
-    beq done
-
-    ; FIFO is low, check if the sample playback is complete
-    lda channel1+chan_data::done
-    beq refill_fifo       ; If channel1 isn't done, refill FIFO
-    stz channel1+chan_data::available
-
-    lda channel2+chan_data::done
-    beq refill_fifo       ; If channel2 isn't done, refill FIFO
-    stz channel2+chan_data::available
-
-    ; Check if FIFO buffer is empty
-    lda VERA::PCM::CTRL
-    and #%01000000          ; Check bit 6: EMPTY
-    beq done           ; If FIFO isn't empty, exit
-
-    ; Sample is done
-    ; Set Playback to none
-    stz VERA::PCM::RATE
-    ; reset done flags
-    stz channel1+chan_data::done
-    stz channel2+chan_data::done
-    stz channel1+chan_data::available
-    stz channel2+chan_data::available
-    ; reset FIFO
-    ; lda #$80
-    ; sta VERA::PCM::CTRL
-
-    ; Exit 
-    rts
-
-    refill_fifo:
-    jsr fill_fifo        ; Refill the FIFO since sample is not done
+    ; Update all channels
+    ldy #255
+    loop:
+        ldx #0
+        jsr update_channel
+        ldx #(.sizeof(CHANNEL) * 1)
+        jsr update_channel
+        ldx #(.sizeof(CHANNEL) * 2)
+        jsr update_channel
+        ldx #(.sizeof(CHANNEL) * 3)
+        jsr update_channel
+        dey
+        bne loop
 
     done:
     rts
 .endproc
 
 ; ---------------------------------------------------------------
-; Fill FIFO buffer until full or sample finished (updated version)
+; Update a single channel
+; X: Channel number
 ; ---------------------------------------------------------------
-.proc fill_fifo
-    ; Save original bank
-    lda $00
-    sta stemp
+.proc update_channel
+    phx
+    phy
 
-    ; Check if the FIFO buffer is low
-    lda VERA::IRQ_FLAGS
-    and #%00001000       ; Check bit 3: AFLOW
-    jeq fill_fifo_done   ; If FIFO isn't low, exit
+    ; Skip if not playing
+    lda channels+CHANNEL::playing,x
+    beq write_silence
 
-    lda channel1+chan_data::done
-    beq fill_fifo_loop  ; if channel1 is not done, continue
+    ; Set frequency
+    ldy channels+CHANNEL::frequency,x
+    lda pcm_freq_table,y
+    sta VERA::PCM::RATE
+    ; Set volume
+    lda channels+CHANNEL::volume,x
+    sta VERA::PCM::CTRL
 
-    lda channel2+chan_data::done
-    beq fill_fifo_loop  ; if channel2 is not done, continue
+    ; Get sample byte
+    phx
+    ldy channels+CHANNEL::start+2,x
+    lda channels+CHANNEL::start+1,x
+    pha
+    lda channels+CHANNEL::start,x
+    plx
+    jsr read_byte
+    sta VERA::PCM::DATA
+    plx
 
-    jra fill_fifo_done ; both channels are done
+    ; Increment sample pointer
+    inc channels+CHANNEL::start,x
+    bne :+
+    inc channels+CHANNEL::start+1,x
+    bne :+
+    inc channels+CHANNEL::start+2,x
+    :
 
-    fill_fifo_loop:
-        ; Check if FIFO is full or sample depleted
-        lda VERA::PCM::CTRL
-        and #%10000000        ; Check FIFO full flag
-        jne fill_fifo_done    ; If FIFO is full, exit
+    ; Check if end of sample
+    lda channels+CHANNEL::end+2,x
+    cmp channels+CHANNEL::start+2,x
+    bne done
+    lda channels+CHANNEL::end+1,x
+    cmp channels+CHANNEL::start+1,x
+    bne done
+    lda channels+CHANNEL::end,x
+    cmp channels+CHANNEL::start,x
+    bne done
 
-        ; *** channel1 (left)
-        lda channel1+chan_data::done
-        beq :+ ; not done
-        stz VERA::PCM::DATA ; write nothing
-        bra fill_channel2
-        :
-        ; Check if start has reached or passed end (24-bit check)
-        lda channel1+chan_data::start
-        cmp channel1+chan_data::end
-        bcc continue_fill_channel1
-        lda channel1+chan_data::start+1
-        cmp channel1+chan_data::end+1
-        bcc continue_fill_channel1
-        lda channel1+chan_data::start+2
-        cmp channel1+chan_data::end+2
-        bcc continue_fill_channel1
-        lda #1
-        sta channel1+chan_data::done
-        bra fill_channel2
+    ; Reset channel
+    stz channels+CHANNEL::playing,x
+    stz channels+CHANNEL::volume,x
+    stz channels+CHANNEL::frequency,x
+    stz channels+CHANNEL::start,x
+    stz channels+CHANNEL::end,x
+    stz channels+CHANNEL::start+1,x
+    stz channels+CHANNEL::end+1,x
+    stz channels+CHANNEL::start+2,x
+    stz channels+CHANNEL::end+2,x
+    ply
+    plx
+    rts
 
-        ; Fill FIFO with sample data
-        continue_fill_channel1:
-        lda channel1+chan_data::start
-        ldx channel1+chan_data::start+1
-        ldy channel1+chan_data::start+2
+write_silence:
+    lda #0
+    sta VERA::PCM::DATA
 
-        jsr read_byte       ; 24-bit address read
-        sta VERA::PCM::DATA
-
-        ; Increment sample pointer address
-        inc24 channel1+chan_data::start
-
-        fill_channel2:
-        ; *** channel2 (right)
-        lda channel2+chan_data::done
-        beq :+ ; not done
-        stz VERA::PCM::DATA ; write nothing
-        bra fill_fifo_loop
-        :
-        ; Check if start has reached or passed end (24-bit check)
-        lda channel2+chan_data::start
-        cmp channel2+chan_data::end
-        bcc continue_fill_channel2
-        lda channel2+chan_data::start+1
-        cmp channel2+chan_data::end+1
-        bcc continue_fill_channel2
-        lda channel2+chan_data::start+2
-        cmp channel2+chan_data::end+2
-        bcc continue_fill_channel2
-        lda #1
-        sta channel2+chan_data::done
-        jmp fill_fifo_loop
-
-        ; Fill FIFO with sample data
-        continue_fill_channel2:
-        lda channel2+chan_data::start
-        ldx channel2+chan_data::start+1
-        ldy channel2+chan_data::start+2
-
-        jsr read_byte       ; 24-bit address read
-        sta VERA::PCM::DATA
-
-        ; Increment sample pointer address
-        inc24 channel2+chan_data::start
-
-        jmp fill_fifo_loop  ; Continue until FIFO is full or sample finished
-
-    fill_fifo_done:
-    ; Restore original bank
-    lda stemp
-    sta $00
-
+done:
+    ply
+    plx
     rts
 .endproc
-

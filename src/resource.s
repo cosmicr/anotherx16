@@ -216,6 +216,7 @@
 
     ; get offset into resource info table and store in work
     get_offset:
+
     tax ; counter
     lda #<resource_table
     sta work

@@ -39,11 +39,6 @@
     polygon_info:   .tag polygon_data   ; for storing polygon data
 
     ; Rasterizer variables
-    count:                  .res 1
-    seg_height:             .res 2
-    half_width:             .res 1
-    half_height:            .res 1
-    origin:                 .tag POINT ; 4 bytes
     left_index:             .res 1
     right_index:            .res 1
     left_index_next:        .res 1
@@ -54,6 +49,12 @@
     y_bottom:               .res 2
 
 .segment "BSS"
+    count:                  .res 1
+    seg_height:             .res 2
+    half_width:             .res 1
+    half_height:            .res 1
+
+    origin:                 .tag POINT ; 4 bytes
     polygons_x:     .res 256            ; x values for vertices (16-bit)
     polygons_y:     .res 256            ; y values for vertices (16-bit)
     counter:        .res 1              ; counter for reading vertices
