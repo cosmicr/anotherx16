@@ -9,6 +9,14 @@
 MAX_RESOURCES = 146
 RESOURCE_BANK_START = $01
 
+TYPE_SND = 0 ; 8bits raw sound
+TYPE_MOD = 1 ; soundfx module
+TYPE_BMP = 2 ; 320x200x4 bitmap
+TYPE_PAL = 3 ; palette
+TYPE_MAC = 4 ; bytecode
+TYPE_MAT = 5 ; polygons
+TYPE_BNK = 6 ; bank2.mat
+
 .struct resource
     status          .res 1
     rtype           .res 1

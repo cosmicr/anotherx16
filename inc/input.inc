@@ -1,31 +1,31 @@
 ; ---------------------------------------------------------------
-; input.inc
-; AnotherX16 - Commander X16 port of Another World
+; input.inc  –  Commander X16 (Another World)
 ; ---------------------------------------------------------------
 
-.global update_input, update_keyboard, init_input
+EXTAPI          = $FEAB      ; KERNAL ps2data_raw (function #9)
 
-EXTAPI = $FEAB ; External API for CX16
+; ------ engine vars --------------------------------------------------------
+HERO_POS_UP_DOWN      = $E5
+SCROLL_Y              = $F9
+HERO_ACTION           = $FA
+HERO_POS_JUMP_DOWN    = $FB
+HERO_POS_LEFT_RIGHT   = $FC
+HERO_POS_MASK         = $FD
+HERO_ACTION_POS_MASK  = $FE
 
-HERO_POS_UP_DOWN = $E5
-SCROLL_Y = $F9
-HERO_ACTION = $FA
-HERO_POS_JUMP_DOWN = $FB
-HERO_POS_LEFT_RIGHT = $FC
-HERO_POS_MASK = $FD
-HERO_ACTION_POS_MASK = $FE
-PAUSE_SLICES = $FF
+; ------ PS/2 scan‑codes we track (set 2) -----------------------------------
+PS2_RIGHT      = $59
+PS2_LEFT       = $4F
+PS2_UP         = $53
+PS2_DOWN       = $54
+PS2_SPACE      = $3D
+PS2_ENTER      = $2B
 
-KEY_RIGHT_INDEX = 0
-KEY_LEFT_INDEX = 1
-KEY_UP_INDEX = 2
-KEY_DOWN_INDEX = 3
-KEY_SPACE_INDEX = 4
+; ------ KEY_FLAGS bit layout -----------------------------------------------
+RIGHT_MASK   = %00000001     ; bit 0
+LEFT_MASK    = %00000010     ; bit 1
+DOWN_MASK    = %00000100     ; bit 2
+UP_MASK      = %00001000     ; bit 3
+ACTION_MASK  = %10000000     ; bit 7  (space / enter)
 
-; X16 keyboard matrix scan codes
-PS2_UP    = $53    ; Equivalent to PETSCII $91
-PS2_RIGHT = $59    ; Equivalent to PETSCII $1D
-PS2_DOWN  = $54    ; Equivalent to PETSCII $11
-PS2_LEFT  = $4F    ; Equivalent to PETSCII $9D
-PS2_SPACE = $3D    ; Equivalent to PETSCII $20
-PS2_ENTER = $5A    ; Keep standard PS/2 code for ENTER
+.global init_input, update_keyboard, update_input

@@ -303,7 +303,7 @@
 ; ---------------------------------------------------------------
 ; CJMP cond_type, b, a, addr
 ; Jump based on the condition type and the values of b and a
-; cond_type: bit 0x80 = immediate, bit 0x40 = variable, bits 0x07 = condition type
+; cond_type: bit 7 = immediate, bit 6 = variable, bits 0,1,2 = condition type
 ; ---------------------------------------------------------------
 .proc opcode_0A_CJMP
     cond_type = temp
@@ -490,7 +490,6 @@ jump_table:
 ; CCTRL start, end, state
 ; ---------------------------------------------------------------
 .proc opcode_0C_CCTRL
-stp
     ; Read the start task number and set task_ptr
     read_script_byte
     pha ; save for counting
@@ -640,22 +639,20 @@ stp
 ; DTEXT num, x, y, color
 ; ---------------------------------------------------------------
 .proc opcode_12_DTEXT
+    ; TODO: *** TEXT RENDERING USING BITMAP METHOD
     num = work
     x_pos = work+2
     y_pos = work+3
     color = work+4
     ; todo: use read_script_word (and also update everything here)
-    read_script_byte
+    jsr read_script_word
     sta num+1
-    read_script_byte
-    sta num
-    read_script_byte
-    asl
+    stx num
+
+    jsr read_script_word
     sta x_pos
-    read_script_byte
-    lsr
-    lsr
-    sta y_pos
+    stx y_pos
+
     read_script_byte
     sta color
 rts
@@ -869,21 +866,20 @@ rts
     freq = work+2
     volume = work+3
     channel = stemp+2
-    read_script_byte
+    jsr read_script_word
     sta num+1
-    read_script_byte
-    sta num
+    stx num
 
-    read_script_byte
+    jsr read_script_word
     sta freq
-
-    read_script_byte
-    lsr_a 4
-    sta volume
+    stx volume
+    lsr volume
+    lsr volume
+    lsr volume
+    lsr volume
 
     read_script_byte
     sta channel
-
 
     lda num
     ldx freq
@@ -913,6 +909,7 @@ rts
 
     @load:
     lda num
+    ; todo: if resource is a bitmap, then load and display it instead
     jsr load_resource
 
     rts

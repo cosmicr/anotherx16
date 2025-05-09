@@ -19,6 +19,7 @@
     next_offset:            .byte 0, 0, 0, 0
     resource_filename:      .asciiz "data"  ; "bank" for compressed data
                             .res 2
+    dummy_loc:      .res 320
 
 .segment "BSS"
     resource_table:         .res MAX_RESOURCES * .sizeof(resource)
@@ -78,6 +79,7 @@
     lda #1 ; file #1
     ldx #8 ; device
     ldy #0 ; secondary address = CBM_READ
+    jsr SETLFS ; set logical file system
     jsr OPEN
     jsr READST
     jne error ; error opening file
@@ -117,6 +119,8 @@
     jsr ACPTR
     cmp #$ff
     jne error
+    jsr CLRCHN      ; Reset channels back to default
+    lda #1
     jsr CLOSE ; close the file
 
     ; reverse the bytes for the big endian values
@@ -162,11 +166,14 @@
         inx
         cpx #MAX_RESOURCES
         bne @status_loop
-    ldx #0
-    jsr CHKIN
+
+    ; ldx #0
+    ; jsr CHKIN
     rts
 
     error:
+        jsr CLRCHN ; clear the channel
+        lda #1
         jsr CLOSE ; close the file, if it was open
         jsr CINT
         ldx #0
@@ -237,6 +244,12 @@
     ldy #resource::status
     lda (work),y
     jne resource_loaded
+
+    ; if the resource is a bitmap, then load it into vera instead
+    ldy #resource::rtype
+    lda (work),y
+    cmp #2 ; bitmap type
+    jeq load_bitmap
 
     ; save the current bank to the resource ; probably not necessary
     ldy #resource::rank
@@ -328,3 +341,193 @@
 
     rts
 .endproc
+
+.macro check_set_bit byte, mask, check_bit, set_bit
+    lda byte
+    bit #(1 << check_bit) ; check the bit
+    beq :+   ; if not set, skip
+    lda #(1 << set_bit) ; set the lefg bit
+    ora mask
+    sta mask
+    :
+.endmacro
+
+
+.proc load_bitmap
+    PLANE_SIZE = 8000
+
+    mask = temp
+    byte = temp+1
+    counter = temp+2
+
+    ; Setup file parameters
+    lda #7          ; Filename length
+    ldx #<resource_filename
+    ldy #>resource_filename
+    jsr SETNAM
+
+    lda #2          ; Logical file number
+    ldx #8          ; Device number (8 = disk)
+    ldy #0          ; Secondary address (2 = load)
+    jsr SETLFS
+    
+    ; Open the file
+    jsr OPEN
+    jsr READST
+    jne error
+
+    ldx #2          ; Logical file number
+    jsr CHKIN       ; Set input channel
+
+    ; Set up VERA for writing
+    stz VERA::CTRL  ; Control register = 0
+    stz VERA::ADDR  ; Low byte of address
+    stz VERA::ADDR+1; Middle byte of address
+    lda #(VERA::INC1); Auto-increment by 1
+    sta VERA::ADDR+2; High byte + increment mode
+
+    ; Plane 0 - bit 0
+    stz counter ; skip counter for scaling
+    ; loop 8000 times
+    ldy #0
+    ldx #0
+    plane_0_loop:
+        jsr ACPTR
+        sta byte
+
+        ; chunk 0: bit 7 -> left bit 0, bit 6 -> right bit 0
+        stz mask ; clear the mask
+        check_set_bit byte, mask, 7, 4
+        check_set_bit byte, mask, 6, 0
+        lda mask
+        sta VERA::DATA0
+
+        ; chunk 1: bit 5 -> left bit 0, bit 4 -> right bit 0
+        stz mask ; clear the mask
+        check_set_bit byte, mask, 5, 4
+        check_set_bit byte, mask, 4, 0
+        lda mask
+        sta VERA::DATA0
+
+        ; chunk 2: bit 3 -> left bit 0, bit 2 -> right bit 0
+        stz mask
+        check_set_bit byte, mask, 3, 4
+        check_set_bit byte, mask, 2, 0
+        lda mask
+        sta VERA::DATA0
+
+        ; chunk 3: bit 1 -> left bit 0, bit 0 -> right bit 0
+        stz mask
+        check_set_bit byte, mask, 1, 4
+        check_set_bit byte, mask, 0, 0
+        lda mask
+        sta VERA::DATA0
+
+        inx
+        bne :+
+        iny
+        :
+        cpy #>PLANE_SIZE
+        jcc plane_0_loop
+        bne :+
+        cpx #<PLANE_SIZE
+        jcc plane_0_loop
+        :
+
+    ; Planes 1-3
+    .repeat 3, p
+    .scope
+
+    ; reset VERA address
+    lda #1
+    sta VERA::CTRL  ; data port 1
+    stz VERA::ADDR
+    stz VERA::ADDR+1
+    lda #(VERA::INC1); Auto-increment by 1
+    sta VERA::ADDR+2; High byte + increment mode
+
+    stz VERA::CTRL  ; data port 0
+    stz VERA::ADDR
+    stz VERA::ADDR+1
+    lda #(VERA::INC1); Auto-increment by 1
+    sta VERA::ADDR+2; High byte + increment mode
+
+    ; loop 8000 times
+    ldx #0
+    ldy #0
+    plane_loop:
+        jsr ACPTR
+        sta byte
+
+        ; chunk 0: bit 7 -> left bit 0, bit 6 -> right bit 0
+        lda VERA::DATA0
+        sta mask
+        check_set_bit byte, mask, 7, (p+5)
+        check_set_bit byte, mask, 6, (p+1)
+        lda mask
+        sta VERA::DATA1
+
+        ; chunk 1: bit 5 -> left bit 0, bit 4 -> right bit 0
+        lda VERA::DATA0
+        sta mask
+        check_set_bit byte, mask, 5, (p+5)
+        check_set_bit byte, mask, 4, (p+1)
+        lda mask
+        sta VERA::DATA1
+
+        ; chunk 2: bit 3 -> left bit 0, bit 2 -> right bit 0
+        lda VERA::DATA0
+        sta mask
+        check_set_bit byte, mask, 3, (p+5)
+        check_set_bit byte, mask, 2, (p+1)
+        lda mask
+        sta VERA::DATA1
+
+        ; chunk 3: bit 1 -> left bit 0, bit 0 -> right bit 0
+        lda VERA::DATA0
+        sta mask
+        check_set_bit byte, mask, 1, (p+5)
+        check_set_bit byte, mask, 0, (p+1)
+        lda mask
+        sta VERA::DATA1
+
+        inx
+        bne :+
+        iny
+        :
+        cpy #>PLANE_SIZE
+        jcc plane_loop
+        bne :+
+        cpx #<PLANE_SIZE
+        jcc plane_loop
+        :
+
+    .endscope
+    .endrepeat
+
+done:
+    jsr CLRCHN
+    lda #2
+    jsr CLOSE
+    ldx #0
+    jsr CHKIN
+    
+    rts
+
+    error:
+        lda #2
+        jsr CLOSE ; close the file, if it was open
+        jsr CINT
+        ldx #0
+        @error_loop:
+            lda str_error_memlist_bin,x
+            beq @error_end
+            jsr CHROUT
+            inx
+            bne @error_loop
+        @error_end:
+
+.endproc
+
+
+        

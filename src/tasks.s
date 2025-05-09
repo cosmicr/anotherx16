@@ -51,6 +51,7 @@
 .endmacro
 
 ; Clear Tasks - iterate through tasks and reset values
+.align 128
 .proc clear_tasks
     lda #<tasks
     sta current_task
@@ -83,6 +84,7 @@
 .endproc
 
 ; Update task states
+.align 256
 .proc update_tasks
     current_task = work
     lda #<tasks
@@ -137,6 +139,7 @@
 .endproc
 
 ; Execute each task/channel
+.align 256
 .proc execute_tasks
     current_task = work
     lda #<tasks
@@ -153,11 +156,10 @@
         lda_task task::pc+1
         sta pc+1                ; pc = task::pc
 
-        lda pc
-        cmp #$FF
+        lda #$FF
+        cmp pc
         bne @execute
-        lda pc+1
-        cmp #$FF
+        cmp pc+1
         beq @next_task ; if pc is $FFFF then skip task
         
         @execute:
@@ -211,7 +213,7 @@
     jsr clear_tasks
 
     skip_clear:
-        jsr update_tasks
+    jsr update_tasks
 
     ; **Update input
     jsr update_input
@@ -227,6 +229,7 @@
 ; Returns: A = first byte read, X = second byte read
 ; Little Endian
 ; ---------------------------------------------------------------
+.align 128
 .proc read_script_word
     ; Get first byte
     ldy #resource::pointer
@@ -257,9 +260,9 @@
     lda state+engine::bytecode_pos
     adc #2
     sta state+engine::bytecode_pos
-    lda #0
-    adc state+engine::bytecode_pos+1
-    sta state+engine::bytecode_pos+1
+    bcc :+
+    inc state+engine::bytecode_pos+1
+    :
 
     done:
     pla ; restore low byte
@@ -297,6 +300,7 @@
 ; ---------------------------------------------------------------
 ; Draws a single polygon
 ; ---------------------------------------------------------------
+.align 128
 .proc opcode_draw_poly_background
     lda opcode
     sta polygon_info+polygon_data::offset+1
@@ -347,6 +351,7 @@
 ; Draws a polygon or a group of polygons
 ; Assumes opcode is set before calling
 ; ---------------------------------------------------------------
+.align 256
 .proc opcode_draw_poly_sprite
     ; Get offset
     jsr read_script_word
@@ -483,38 +488,36 @@
 .endproc
 
 .proc opcode_execute
-    .segment "DATA"
-        jump_table:
-            .word opcode_00_SETI
-            .word opcode_01_MOV
-            .word opcode_02_ADD
-            .word opcode_03_ADDC
-            .word opcode_04_CALL
-            .word opcode_05_RET
-            .word opcode_06_YIELD
-            .word opcode_07_JMP
-            .word opcode_08_SETVEC
-            .word opcode_09_DJNZ
-            .word opcode_0A_CJMP
-            .word opcode_0B_SETPAL
-            .word opcode_0C_CCTRL
-            .word opcode_0D_SELECTP
-            .word opcode_0E_FILLP
-            .word opcode_0F_COPYP
-            .word opcode_10_BLITP
-            .word opcode_11_KILL
-            .word opcode_12_DTEXT
-            .word opcode_13_SUB
-            .word opcode_14_AND
-            .word opcode_15_OR
-            .word opcode_16_SHL
-            .word opcode_17_SHR
-            .word opcode_18_SOUND
-            .word opcode_19_LOAD
-            .word opcode_1A_MUSIC
-    
-    .segment "CODE"
     asl ; table is word aligned
     tax
     jmp (jump_table, x)
+    .align 64
+    jump_table:
+        .word opcode_00_SETI
+        .word opcode_01_MOV
+        .word opcode_02_ADD
+        .word opcode_03_ADDC
+        .word opcode_04_CALL
+        .word opcode_05_RET
+        .word opcode_06_YIELD
+        .word opcode_07_JMP
+        .word opcode_08_SETVEC
+        .word opcode_09_DJNZ
+        .word opcode_0A_CJMP
+        .word opcode_0B_SETPAL
+        .word opcode_0C_CCTRL
+        .word opcode_0D_SELECTP
+        .word opcode_0E_FILLP
+        .word opcode_0F_COPYP
+        .word opcode_10_BLITP
+        .word opcode_11_KILL
+        .word opcode_12_DTEXT
+        .word opcode_13_SUB
+        .word opcode_14_AND
+        .word opcode_15_OR
+        .word opcode_16_SHL
+        .word opcode_17_SHR
+        .word opcode_18_SOUND
+        .word opcode_19_LOAD
+        .word opcode_1A_MUSIC
 .endproc

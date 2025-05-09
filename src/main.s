@@ -28,10 +28,11 @@
 
 ; todo: clean up zeropage variables
 .segment "ZEROPAGE"
-    work:   .res 8
-    temp:   .res 8
-    read:   .res 6
-    mtemp:  .res 2
+    work:           .res 8
+    temp:           .res 10
+    read:           .res 6
+    mtemp:          .res 2
+    frame_early:    .res 1
 
 .segment "CODE"
 
@@ -39,11 +40,11 @@
 ; Main program
 ; ---------------------------------------------------------------
     ; Unpack all the game data and save to disk
-    ; todo: jsr unpack_data
+    ; TODO: *** jsr unpack_data
     ; Set video modes and clear screen
     jsr init_vera
     ; Setup keyboard and audio
-    ;jsr init_irq 
+    jsr init_irq 
     ;jsr init_audio
     ; Load game resources
     jsr init_resources

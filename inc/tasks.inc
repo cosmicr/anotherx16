@@ -22,8 +22,6 @@ MAX_TASKS = 64
 ; Returns: A = byte read
 ; ---------------------------------------------------------------
 .macro read_script_byte
-    ; todo: we're almost at a point where this could be a macro
-
     ; note: do we need to use all 32 bits of pointer?
     ldy #resource::pointer
     clc

@@ -17,13 +17,13 @@
 .include "macros.inc"
 .include "polygon.inc"
 
-STARTING_PART = 1
+STARTING_PART = 6
 
 .segment "EXTZP" : zeropage
     state:   .res .sizeof(engine)
 
 .segment "BSS"
-    tasks:   .res .sizeof(task) * MAX_TASKS
+    tasks:   .res .sizeof(task) * MAX_TASKS ; TODO: change to parallel instead of serial massive gains to be had (ie 64 of each variable in task instead)
     engine_vars:  .res 512
 
 .segment "RODATA"
@@ -112,35 +112,6 @@ STARTING_PART = 1
 
     rts
 .endproc
-
-; ---------------------------------------------------------------
-; Get page number directly or indirectly
-; A: page number
-; Returns: page number in A
-; ---------------------------------------------------------------
-; .proc get_page
-;     ; if page number is $FF then return the current buffer_page
-;     cmp #$FF
-;     beq @get_ptr2
-;     ; if page number is $FE then return the current display_page
-;     cmp #$FE
-;     beq @get_ptr1
-;     ; else return the page number
-;     ; todo: I've removed this for now for some extra speed, but maybe re-add later
-;     ; cmp #4 ; make sure number is lower than 4
-;     ; bcs @error
-;     rts
-;     @get_ptr2:
-;         lda state+engine::buffer_page
-;         rts
-;     @get_ptr1:
-;         lda state+engine::display_page
-;         rts
-;     @error:
-;         jsr CINT
-;         stp ; todo: add error messages throughout!
-;         rts
-; .endproc
 
 ; ---------------------------------------------------------------
 ; Set Part - loads the relevant resources for the part
@@ -240,6 +211,16 @@ frame_counter:
     @skip_palette:
         lda state+engine::display_page
         jsr set_vera_page   ; set the VERA page to the display_page
+
+        ; 60Hz wait
+        lda frame_early ; if interrupt has not been triggered then wait
+        beq @no_wait
+        wai
+        wai ; target 30fps
+        
+    @no_wait:
+        lda #2
+        sta frame_early
 
     rts
 .endproc

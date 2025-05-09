@@ -63,6 +63,8 @@
     jsr update_audio
     jsr update_keyboard
 
+    dec frame_early
+
     ply
     plx
     pla

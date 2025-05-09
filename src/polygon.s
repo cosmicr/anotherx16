@@ -66,6 +66,12 @@
     cy:             .res 2              ; y value for child polygon
 
 .segment "RODATA"
+    scale_lookup:
+        .repeat 256, i
+            .byte (i * 8) / 10
+        .endrepeat
+
+.export scale_lookup
 
 .segment "CODE"
 
@@ -142,6 +148,8 @@
 
     ; read polygon width
     read_polygon_byte
+    tax
+    lda scale_lookup,x
     jsr multiply_zoom
     sta polygon_info+polygon_data::width
     stx polygon_info+polygon_data::width+1
@@ -161,6 +169,8 @@
     vertex_loop:
         phy
         read_polygon_byte
+        tax
+        lda scale_lookup,x
         jsr multiply_zoom
         ply
         sta polygons_x,y ; x value
@@ -180,6 +190,41 @@
         cpy counter
         jne vertex_loop
 
+
+    lda polygon_info+polygon_data::center_x+1
+    bmi @handle_negative                     ; If high byte is $FF, handle negative value
+    beq @normal_range                        ; If high byte is 0, handle 0-255 range
+
+    ; Handle extended range (>255)
+    ldx polygon_info+polygon_data::center_x  ; Get low byte
+    lda scale_lookup,x                       ; Scale it using lookup table
+    clc
+    adc #204                                 ; Add 204 (255 * 0.8)
+    sta polygon_info+polygon_data::center_x  ; Store result
+    lda #0
+    adc #0                                   ; Capture any carry
+    sta polygon_info+polygon_data::center_x+1
+    bra @done
+
+@normal_range:
+    ldx polygon_info+polygon_data::center_x  ; Get low byte
+    lda scale_lookup,x                       ; Scale it using lookup table
+    sta polygon_info+polygon_data::center_x  ; Store result
+    stz polygon_info+polygon_data::center_x+1 ; Clear high byte
+    bra @done
+
+@handle_negative:
+    lda polygon_info+polygon_data::center_x  ; Get low byte
+    eor #$FF                                 ; Convert to positive value
+    tax
+    lda scale_lookup,x                       ; Scale it using lookup table
+    eor #$FF                                 ; Convert back to negative
+    sta polygon_info+polygon_data::center_x  ; Store result
+    lda #$FF                                 ; Keep high byte as $FF
+    sta polygon_info+polygon_data::center_x+1
+    
+@done:
+    ; Continue with drawing
     jmp draw_polygon
 
     finish:
@@ -292,14 +337,14 @@
 
     lda polygon_info+polygon_data::zoom
     sta zoom_temp
+    cmp #64
+    bne :+
+    lda zoom_result
+    ldx #0
+    rts
+    :
     lda polygon_info+polygon_data::zoom+1
     sta zoom_temp+1
-    ; todo: this actually slows down execution for some reason
-    ; cmp #0
-    ; jne continue
-    ; lda zoom_temp
-    ; cmp #64
-    ; jne continue
 
     continue:
     mulx_addr zoom_result, zoom_temp ; todo: since this is only used once, might as well inline it

@@ -8,3 +8,5 @@
 .global opcode_0D_SELECTP, opcode_0E_FILLP, opcode_0F_COPYP, opcode_10_BLITP, opcode_11_KILL, opcode_12_DTEXT
 .global opcode_13_SUB, opcode_14_AND, opcode_15_OR, opcode_16_SHL, opcode_17_SHR, opcode_18_SOUND, opcode_19_LOAD
 .global opcode_1A_MUSIC
+
+.global task_lookup
