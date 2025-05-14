@@ -6,6 +6,7 @@
 .global parse_polygon
 .globalzp polygon_info
 .globalzp x1, y1, x2, y2, x3, y3, x4, y4, line_info
+.global scale_lookup
 
 PRECISION = 8
 MASK = $FFFF << PRECISION ; $FFFF00

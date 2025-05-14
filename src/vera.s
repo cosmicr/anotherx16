@@ -232,7 +232,6 @@ page_3_y160_bank:
 ; Page address is A * 30720
 ; ---------------------------------------------------------------
 .proc set_vera_page
-    ;wai ; todo: uncomment once frame rate is acceptable
     stz VERA::CTRL
     tax
     lda page_values,x
@@ -482,85 +481,6 @@ skip_dst_hi:
     
 temp_dst_page: .byte 0
 .endproc
-
-; ---------------------------------------------------------------
-; Setup VERA for a transparent line or a copy line
-; sets port 0 and port 1 to the same address
-; helper function for draw_line
-; uses line_info struct
-; ---------------------------------------------------------------
-.macro setup_line
-    ; set control port 1
-    lda #1
-    sta VERA::CTRL
-    
-    ; Get current draw page and Y position
-    ldx state+engine::draw_page
-    ldy line_info+line_data::y1
-    
-    ; Select correct page-specific lookup tables based on draw_page
-    cpx #0
-    bne @not_page_0
-    lda page_0_y160_lo,y
-    sta VERA::ADDR
-    lda page_0_y160_hi,y
-    sta VERA::ADDR+1
-    stz VERA::ADDR+2
-    bra @do_x_add
-@not_page_0:
-    cpx #1
-    bne @not_page_1
-    lda page_1_y160_lo,y
-    sta VERA::ADDR
-    lda page_1_y160_hi,y
-    sta VERA::ADDR+1
-    stz VERA::ADDR+2
-    bra @do_x_add
-@not_page_1:
-    cpx #2
-    bne @page_3
-    lda page_2_y160_lo,y
-    sta VERA::ADDR
-    lda page_2_y160_hi,y
-    sta VERA::ADDR+1
-    lda page_2_y160_bank,y
-    bra @continue
-@page_3:
-    lda page_3_y160_lo,y
-    sta VERA::ADDR
-    lda page_3_y160_hi,y
-    sta VERA::ADDR+1
-    lda page_3_y160_bank,y
-@continue:
-    sta VERA::ADDR+2
-
-@do_x_add:
-    ; x1 divided by 2 and add to address
-    lda line_info+line_data::x1
-    lsr
-    clc
-    adc VERA::ADDR
-    sta VERA::ADDR
-    sta vtemp
-    lda #0
-    adc VERA::ADDR+1
-    sta VERA::ADDR+1
-    sta vtemp+1
-    lda #0
-    adc VERA::ADDR+2
-    
-    ; Set the increment mode
-    ora #VERA::INC1
-    sta VERA::ADDR+2
-    
-    ; set control port 0 with same address
-    stz VERA::CTRL
-    sta VERA::ADDR+2
-    lda vtemp
-    sta VERA::ADDR
-    lda vtemp+1
-    sta VERA::ADDR+1
-.endmacro
 
 ; ---------------------------------------------------------------
 ; Draw a horizontal line

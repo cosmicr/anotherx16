@@ -162,6 +162,7 @@ rts
 ; Update audio - called from IRQ
 ; ---------------------------------------------------------------
 .proc update_audio
+rts
     ; Skip if audio not ready
     lda audio_ready
     beq done
@@ -189,6 +190,7 @@ rts
 ; X: Channel number
 ; ---------------------------------------------------------------
 .proc update_channel
+rts
     phx
     phy
 

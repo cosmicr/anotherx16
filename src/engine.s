@@ -17,7 +17,7 @@
 .include "macros.inc"
 .include "polygon.inc"
 
-STARTING_PART = 6
+STARTING_PART = 8
 
 .segment "EXTZP" : zeropage
     state:   .res .sizeof(engine)

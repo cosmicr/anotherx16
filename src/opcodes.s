@@ -639,40 +639,29 @@ jump_table:
 ; DTEXT num, x, y, color
 ; ---------------------------------------------------------------
 .proc opcode_12_DTEXT
-    ; TODO: *** TEXT RENDERING USING BITMAP METHOD
     num = work
     x_pos = work+2
     y_pos = work+3
     color = work+4
-    ; todo: use read_script_word (and also update everything here)
+
     jsr read_script_word
     sta num+1
     stx num
 
     jsr read_script_word
-    sta x_pos
-    stx y_pos
+    pha ; x_pos
+    phx ; y_pos
 
     read_script_byte
-    sta color
-rts
-    ; *** todo: use bitmap fonts instead of text mode
-    ; set the cursor position
-    ldy y_pos
-    lda charmap_row_lookup,y
-    sta VERA::ADDR
-    lda charmap_row_lookup+1,y
-    sta VERA::ADDR+1
-    lda #($01 | VERA::INC1)
-    sta VERA::ADDR + 2
-    
-    clc
-    lda x_pos
-    adc VERA::ADDR
-    sta VERA::ADDR
-    lda #0
-    adc VERA::ADDR+1
-    sta VERA::ADDR+1
+    pha
+    asl
+    asl
+    asl
+    asl
+    sta text_col
+    pla
+    ora text_col
+    sta text_col ; color is duplicated in the high nibble
 
     ; find the string
     lda #<strings
@@ -694,52 +683,21 @@ rts
         inc temp+1
         bne loop
         rts ; not found
-    @found:
+    @found: ; temp points to the string
+
+    lda temp
+    sta text
+    lda temp+1
+    sta text+1
+
+    inc16 text
+    inc16 text
 
     ; display the string
-    clc
-    lda temp
-    adc #2
-    sta temp
-    lda temp+1
-    adc #0
-    sta temp+1
+    ply
+    plx
+    jsr display_text
 
-    stz VERA::CTRL
-    ldy #0
-    loop2:
-        lda (temp),y
-        beq @end
-        cmp #$0A
-        bne @not_newline
-        inc y_pos
-        inc y_pos
-        ; set the cursor position
-        ldx y_pos
-        lda charmap_row_lookup,x
-        sta VERA::ADDR
-        lda charmap_row_lookup+1,x
-        sta VERA::ADDR+1
-        lda #($01 | VERA::INC1)
-        sta VERA::ADDR + 2
-        
-        clc
-        lda x_pos
-        adc VERA::ADDR
-        sta VERA::ADDR
-        lda #0
-        adc VERA::ADDR+1
-        sta VERA::ADDR+1
-        iny
-        bra loop2
-
-        @not_newline:
-        sta VERA::DATA0
-        lda color
-        sta VERA::DATA0
-        iny
-        bne loop2
-    @end:
     rts
 .endproc
 

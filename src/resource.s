@@ -354,8 +354,6 @@
 
 
 .proc load_bitmap
-    PLANE_SIZE = 8000
-
     mask = temp
     byte = temp+1
     counter = temp+2
@@ -424,15 +422,20 @@
         sta VERA::DATA0
 
         inx
-        bne :+
+        cpx #40
+        jne plane_0_loop
+        ldx #0
         iny
-        :
-        cpy #>PLANE_SIZE
-        jcc plane_0_loop
-        bne :+
-        cpx #<PLANE_SIZE
-        jcc plane_0_loop
-        :
+        cpy #192
+        jne plane_0_loop
+
+    ldx #0
+    bottom_0_loop: ; skip bottom 8 rows
+        jsr ACPTR
+        jsr ACPTR
+        inx
+        cpx #160 ; 320/2
+        bne bottom_0_loop
 
     ; Planes 1-3
     .repeat 3, p
@@ -492,19 +495,95 @@
         sta VERA::DATA1
 
         inx
-        bne :+
+        cpx #40
+        jne plane_loop
+        ldx #0
         iny
-        :
-        cpy #>PLANE_SIZE
-        jcc plane_loop
-        bne :+
-        cpx #<PLANE_SIZE
-        jcc plane_loop
-        :
+        cpy #192
+        jne plane_loop
+
+    ldx #0
+    bottom_loop: ; skip bottom 8 rows
+        jsr ACPTR
+        jsr ACPTR
+        inx
+        cpx #160 ; 320/2
+        bne bottom_loop
 
     .endscope
     .endrepeat
 
+    ; now scale the bitmap by copying
+    ; reset VERA address
+    lda #1
+    sta VERA::CTRL  ; data port 1
+    stz VERA::ADDR
+    stz VERA::ADDR+1
+    lda #(VERA::INC1); Auto-increment by 1
+    sta VERA::ADDR+2; High byte + increment mode
+
+    stz VERA::CTRL  ; data port 0
+    stz VERA::ADDR
+    stz VERA::ADDR+1
+    lda #(VERA::INC1); Auto-increment by 1
+    sta VERA::ADDR+2; High byte + increment mode
+
+    ldx #0
+    ldy #0
+    ; AB CD EF GH IJ
+    ; 11 11 01 11 10 
+    scale_loop:
+        ; copy 2 bytes
+        lda VERA::DATA1 ; AB
+        sta VERA::DATA0 ; AB
+        lda VERA::DATA1 ; CD
+        sta VERA::DATA0 ; CD
+        ; now copy just the low nibble
+        lda VERA::DATA1 ; EF
+        asl
+        asl
+        asl
+        asl
+        sta byte ; F0
+        lda VERA::DATA1 ; GH
+        pha ; save the byte
+        clc
+        lsr
+        lsr
+        lsr
+        lsr
+        ora byte ; combine the nibbles F0 and 0G
+        sta VERA::DATA0 ; FG
+        pla ; restore the byte GH
+        asl
+        asl
+        asl
+        asl
+        sta byte ; H0
+        lda VERA::DATA1 ; IJ
+        clc
+        lsr
+        lsr
+        lsr
+        lsr
+        ora byte ; combine the nibbles H0 and 0I
+        sta VERA::DATA0
+
+        inx
+        cpx #32
+        bne scale_loop
+        ; set the address to the next row
+        ldx #0
+        dest_loop:
+            lda VERA::DATA0
+            inx
+            cpx #32
+            bne dest_loop
+        ldx #0
+        iny
+        cpy #192
+        bne scale_loop
+      
 done:
     jsr CLRCHN
     lda #2
