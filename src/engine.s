@@ -16,14 +16,20 @@
 .include "text.inc"
 .include "macros.inc"
 .include "polygon.inc"
+.include "sample.inc"
 
-STARTING_PART = 8
+STARTING_PART = 1
 
 .segment "EXTZP" : zeropage
     state:   .res .sizeof(engine)
 
 .segment "BSS"
-    tasks:   .res .sizeof(task) * MAX_TASKS ; TODO: change to parallel instead of serial massive gains to be had (ie 64 of each variable in task instead)
+    task_state:         .res 1 * MAX_TASKS ; 64 bytes
+    task_next_state:    .res 1 * MAX_TASKS ; 64 bytes
+    task_pc:            .res 2 * MAX_TASKS ; 128 bytes
+    task_next_pc:       .res 2 * MAX_TASKS ; 128 bytes
+    task_stack:         .res 32 * MAX_TASKS ; reserves 32 * 64 = 2kb (such a lot of space for a stack)
+    task_stack_pos:     .res 1 * MAX_TASKS ; 64 bytes
     engine_vars:  .res 512
 
 .segment "RODATA"
@@ -63,9 +69,10 @@ STARTING_PART = 8
 
     set_var $BC, $0010
     set_var $C6, $0080
-    set_var $F2, 4000 ; note: some implementations use $6000?
+    set_var $F2, 4000 ; note: some implementations use 6000?
     set_var $DC, 33
     set_var $E4, 20
+    set_var $54, %00000001 ; $80 = region (0 = World, 1 = USA) $01 = platform (0 = Amiga, 1 = Other)
 
     stz state+engine::bytecode_pos
     stz state+engine::bytecode_pos+1
@@ -73,23 +80,37 @@ STARTING_PART = 8
     stz state+engine::current_task
     stz state+engine::task_paused
 
-    lda #<tasks
-    sta temp
-    lda #>tasks
-    sta temp+1  ; set the task list pointer
+    ; clear tasks
     ldx #0
-    clear_task_loop:
-        ldy #0
-        @inner_loop:    ; clear the task
-            lda #0
-            sta (temp),y
-            iny
-            cpy #.sizeof(task)
-            bne @inner_loop
-        add16 temp, .sizeof(task)
+    clear_tasks:
+        stz task_state,x
+        stz task_next_state,x
+        stz task_pc,x
+        stz task_pc+MAX_TASKS,x
+        stz task_next_pc,x
+        stz task_next_pc+MAX_TASKS,x
+        stz task_stack_pos,x
         inx
         cpx #MAX_TASKS
-        bne clear_task_loop
+        bne clear_tasks ; loop 64 times
+            
+    ; clear the task stacks (loop 8 * 256 times = 2k)
+    lda #<task_stack
+    sta temp
+    lda #>task_stack
+    sta temp+1
+    ldx #0
+    lda #0
+    clear_stack_page:
+        ldy #0
+        clear_stack_byte:
+            sta (temp),y
+            iny
+            bne clear_stack_byte ; loop 256 times
+        inc temp+1 ; increment the page
+        inx
+        cpx #8
+        bne clear_stack_page ; loop 64 times
 
     stz state+engine::part
     lda #STARTING_PART
@@ -103,8 +124,8 @@ STARTING_PART = 8
 ; ---------------------------------------------------------------
 .proc init_game
     stz state+engine::current_task
-    stz tasks+task::pc
-    stz tasks+task::pc+1
+    stz task_pc
+    stz task_pc+1
     stz state+engine::bytecode_pos
     stz state+engine::bytecode_pos+1
     lda #1
@@ -170,7 +191,6 @@ STARTING_PART = 8
     skip_polygons2:
     stz state+engine::polygons2
     stz state+engine::polygons2+1
-    rts
 
     rts
 .endproc
@@ -216,7 +236,8 @@ frame_counter:
         lda frame_early ; if interrupt has not been triggered then wait
         beq @no_wait
         wai
-        wai ; target 30fps
+        ; wai ; target 30fps
+
         
     @no_wait:
         lda #2

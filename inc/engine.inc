@@ -4,7 +4,8 @@
 ; ---------------------------------------------------------------
 
 .global init_engine, init_game, get_page, set_part
-.global engine_vars, tasks, part_resources, update_display
+.global engine_vars, part_resources, update_display
+.global task_state, task_next_state, task_pc, task_next_pc, task_stack, task_stack_pos
 .global set_var
 .globalzp state
 

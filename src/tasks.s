@@ -21,6 +21,7 @@
 .include "polygon.inc"
 .include "debug.inc"
 .include "input.inc"
+.include "sample.inc"
 
 .segment "ZEROPAGE"
     opcode:     .res 1
@@ -35,47 +36,30 @@
     .repeat MAX_RESOURCES, i
         .word resource_table + (i * .sizeof(resource))
     .endrepeat
-    
 
 .segment "CODE"
-
-.macro lda_task item
-    ldy #item
-    lda (current_task),y
-.endmacro
-
-; presumes that "current_task" is an address to the task
-.macro sta_task item
-    ldy #item
-    sta (current_task),y
-.endmacro
 
 ; Clear Tasks - iterate through tasks and reset values
 .align 128
 .proc clear_tasks
-    lda #<tasks
-    sta current_task
-    lda #>tasks
-    sta current_task+1 ; get the task base address (first task)
-    
-    ldx #MAX_TASKS-1
-    clear_task_loop:
-        lda #0
-        sta_task task::state
-        sta_task task::next_state
-        sta_task task::stack_pos
+    ldx #0
+    clear_loop:
+        stz task_state,x
+        stz task_next_state,x
+        stz task_stack_pos,x
         lda #$FF
-        sta_task task::pc
-        sta_task task::pc+1
-        sta_task task::next_pc
-        sta_task task::next_pc+1
-        add16 current_task, .sizeof(task)
-        dex
-        bne clear_task_loop
+        sta task_pc,x
+        sta task_pc+MAX_TASKS,x ; this is ok because all values are the same
+        sta task_next_pc,x
+        sta task_next_pc+MAX_TASKS,x ; but normally the bytes are next to each other (ie task_pc+1)
+        inx
+        cpx #MAX_TASKS
+        bne clear_loop
 
     ; Reset first task PC to 0
-    stz tasks+task::pc
-    stz tasks+task::pc+1    ; task 0 pc = 0
+    stz task_pc
+    stz task_pc+1
+
     ; Clear next_part to -1
     lda #$FF
     sta state+engine::next_part
@@ -86,51 +70,51 @@
 ; Update task states
 .align 256
 .proc update_tasks
-    current_task = work
-    lda #<tasks
-    sta current_task
-    lda #>tasks
-    sta current_task+1
     ldx #0
     update_loop:
-        lda_task task::next_state
-        sta_task task::state        ; state = next_state
-        lda_task task::next_pc
+        ; state = next_state
+        lda task_next_state,x
+        sta task_state,x
+
+        ; pc = next_pc
+        txa
+        asl ; pc is word aligned
+        tay
+        lda task_next_pc,y
         sta pc
-        lda_task task::next_pc+1
-        sta pc+1                    ; pc = task::next_pc
+        lda task_next_pc+1,y
+        sta pc+1
 
         ; is pc $FFFF? (-1)
         cmp #$FF
-        bne @reset_task_pc
+        bne reset_task_pc
         lda pc
         cmp #$FF
-        beq next_task  ; if it is, then go to next task
-    
-    @reset_task_pc:
-        ; otherwise is it $FFFE? (-2)
-        cmp #$FE
-        beq pause_task  ; if it is then set it back to $FFFF (paused)
-        ; otherwise it is a valid address, so continue
-        lda pc
-        sta_task task::pc
-        lda pc+1
-        sta_task task::pc+1     ; task::pc = pc
-        bra next_offset
-        
+        beq next_task  ; if it is, then go to next task (task is paused)
+
+        reset_task_pc:
+            ; otherwise is it $FFFE? (-2)
+            cmp #$FE
+            beq pause_task  ; if it is then set it back to $FFFF (paused)
+            ; otherwise it is a valid address, so continue
+            lda pc
+            sta task_pc,y
+            lda pc+1
+            sta task_pc+1,y ; task pc = pc
+            bra next_offset
+
         pause_task:
             lda #$FF
-            sta_task task::pc
-            sta_task task::pc+1     ; task::pc = $FFFF (this line redundant?)
+            sta task_pc,y
+            sta task_pc+1,y     ; task pc = $FFFF (-1)
 
         next_offset:
-        lda #$FF
-        sta_task task::next_pc
-        sta_task task::next_pc+1    ; next_pc = $FFFF
+            lda #$FF
+            sta task_next_pc,y
+            sta task_next_pc+1,y ; task next_pc = $FFFF
 
         ; go to next task
         next_task:
-            add16 current_task, .sizeof(task)
             inx
             cpx #MAX_TASKS
             bne update_loop
@@ -141,62 +125,52 @@
 ; Execute each task/channel
 .align 256
 .proc execute_tasks
-    current_task = work
-    lda #<tasks
-    sta current_task
-    lda #>tasks
-    sta current_task+1
     ldx #0
-    @execute_loop:
-        lda_task task::state
-        bne @next_task          ; if state is not 0 then skip task
+    execute_loop:
+        lda task_state,x
+        bne next_task          ; if state is not 0 then skip task
 
-        lda_task task::pc
+        txa
+        asl     ; pc is word aligned
+        tay
+
+        lda task_pc,y
         sta pc
-        lda_task task::pc+1
-        sta pc+1                ; pc = task::pc
+        lda task_pc+1,y
+        sta pc+1                ; pc = task pc
 
         lda #$FF
-        cmp pc
-        bne @execute
         cmp pc+1
-        beq @next_task ; if pc is $FFFF then skip task
+        bne execute
+        cmp pc
+        beq next_task ; if pc is $FFFF then skip task
         
-        @execute:
+        execute:
             lda pc
             sta state+engine::bytecode_pos
             lda pc+1
             sta state+engine::bytecode_pos+1    ; bytecode_pos = pc
 
-            lda #0
-            sta_task task::stack_pos            ; task stack_pos = 0
+            stz task_stack_pos,x ; reset task stack_pos
 
             stx state+engine::current_task      ; current_task = x
             stz state+engine::task_paused       ; task_paused = 0
 
-            ; save current_task
-            lda current_task
-            pha
-            lda current_task+1
-            pha
             phx
+            phy
             jsr execute_task                    ; Get opcode and execute task
+            ply
             plx
-            pla
-            sta current_task+1
-            pla
-            sta current_task
 
             lda state+engine::bytecode_pos
-            sta_task task::pc
+            sta task_pc,y
             lda state+engine::bytecode_pos+1
-            sta_task task::pc+1                 ; task::pc = bytecode_pos
+            sta task_pc+1,y ; task_pc = bytecode_pos
 
-        @next_task:
-            add16 current_task, .sizeof(task)
+        next_task:
             inx
             cpx #MAX_TASKS
-            bne @execute_loop
+            bne execute_loop
 
     rts
 .endproc
@@ -221,6 +195,9 @@
     ; **Execute tasks
     jsr execute_tasks
 
+    ; **Update audio
+    jsr update_audio
+
     rts
 .endproc
 
@@ -229,7 +206,7 @@
 ; Returns: A = first byte read, X = second byte read
 ; Little Endian
 ; ---------------------------------------------------------------
-.align 128
+.align 64
 .proc read_script_word
     ; Get first byte
     ldy #resource::pointer
@@ -242,30 +219,20 @@
     adc state+engine::bytecode_pos+1
     sta read+1
 
+    clc 
+    lda state+engine::bytecode_pos 
+    adc #2 
+    sta state+engine::bytecode_pos 
+    bcc :+ 
+    inc state+engine::bytecode_pos+1 
+    : 
+
     lda read
     ldx read+1
     ldy #0
-    jsr read_byte
-    pha ; low byte
-
-    inc16 read
-
-    lda read
-    ldx read+1
-    ldy #0
-    jsr read_byte
-    tax ; high byte
-
-    clc
-    lda state+engine::bytecode_pos
-    adc #2
-    sta state+engine::bytecode_pos
-    bcc :+
-    inc state+engine::bytecode_pos+1
-    :
+    jsr read_word
 
     done:
-    pla ; restore low byte
     rts ; value is in A
 .endproc
 

@@ -197,6 +197,7 @@
     cmp #MAX_RESOURCES
     jcs invalid_resource_error
 
+
     ; concatenate the filename with the resource number in hex
     pha
     lsr

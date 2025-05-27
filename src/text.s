@@ -157,7 +157,7 @@
         .byte $00, $1C, "-", 0
         .byte $00, $21, "|", 0
         .byte $00, $22, "--- Theoretical study ---", 0
-        .byte $00, $23, " THE EXPERIMENT WILL BEGIN IN    SECONDS", 0
+        .byte $00, $23, " THE EXPERIMENT WILL BEGIN IN     SECONDS", 0
         .byte $00, $24, "  20", 0
         .byte $00, $25, "  19", 0
         .byte $00, $26, "  18", 0
@@ -246,9 +246,9 @@
         .byte $01, $83, "         MUSIC AND SOUND EFFECTS", 0
         .byte $01, $84, " ", 0
         .byte $01, $85, "JEAN-FRANCOIS FREITAS", 0
-        .byte $01, $86, "Commander X16 Version", 0
-        .byte $01, $87, "      By", 0
-        .byte $01, $88, " Rainer De Temple", 0
+        .byte $01, $86, "Commander X16", 0
+        .byte $01, $87, "Version By", 0
+        .byte $01, $88, "Rainer De Temple", 0
         .byte $01, $8B, "       THEN PRESS FIRE", 0
         .byte $01, $8C, " PUT THE PADDLE ON THE UPPER LEFT CORNER", 0
         .byte $01, $8D, "PUT THE PADDLE IN CENTRAL POSITION", 0

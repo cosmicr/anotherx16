@@ -3,6 +3,4 @@
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
 
-.globalzp byte
-
-.global read_byte, write_byte
+.global read_byte, write_byte, read_word

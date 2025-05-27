@@ -67,6 +67,7 @@ bin/
 # Game Files
 DATA??
 BANK??
+!bank.s
 MEMLIST.BIN
 
 keyboardtest.asm

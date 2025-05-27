@@ -45,11 +45,12 @@
     jsr init_vera
     ; Setup keyboard and audio
     jsr init_irq 
-    ;jsr init_audio
     ; Load game resources
     jsr init_resources
     ; Initialize engine state
     jsr init_engine
+    ; Initialize the Audio
+    jsr init_audio
     ; Clear the keyboard states
     jsr init_input
     ; Initialize tasks and bytecode pointer

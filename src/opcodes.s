@@ -22,18 +22,11 @@
 .include "text.inc"
 
 .segment "ZEROPAGE"
-    task_ptr:   .res 2
     end:        .res 1
-    task_state: .res 1
 
 .segment "RODATA"
-    task_lookup:
-    .repeat MAX_TASKS, i
-        .word tasks + (i * .sizeof(task))
-    .endrepeat
 
 .segment "CODE"
-
 
 ; ---------------------------------------------------------------
 ; SETI var, val
@@ -41,18 +34,15 @@
 ; ---------------------------------------------------------------
 .proc opcode_00_SETI
     read_script_byte
-    pha ; var
+    sta temp ; 3 cycles
 
     jsr read_script_word
-    stx temp
-    sta temp+1 ; swap endianess
 
-    ply
-    lda temp
-    sta engine_vars,y ; val lo is already in A
-    lda temp+1
-    sta engine_vars+256,y
-    
+    ldy temp ; 3 cycles
+    sta engine_vars+256,y ; swap endianess ; 5 cycles
+    txa ; 2 cycles
+    sta engine_vars,y ; 5 cycles
+    ; total = 18 cycles
     rts
 .endproc
 
@@ -96,72 +86,76 @@
 ; ---------------------------------------------------------------
 .proc opcode_03_ADDC
     read_script_byte
-    pha ; var
+    sta temp ; 3
 
     jsr read_script_word
-    stx temp
-    sta temp+1
+    sta temp+1 ; save high byte ; 3
 
-    plx
-    clc
-    lda engine_vars,x
-    adc temp
-    sta engine_vars,x
-    lda engine_vars+256,x
-    adc temp+1
-    sta engine_vars+256,x
-
+    ldy temp ; dst is in Y ; 3
+    txa ; 2
+    clc ; 2
+    adc engine_vars,y ; 4
+    sta engine_vars,y ; 5
+    lda temp+1 ; 3
+    adc engine_vars+256,y ; 4
+    sta engine_vars+256,y ; 5
+    ; 34 cycles total
+    
     rts
 .endproc
 
 ; ---------------------------------------------------------------
 ; CALL addr
-; Call a function at the specified address
+; Call a function at the specified address by setting the bytecode_pos
+; and saving the current bytecode_pos to the stack as a return address
 ; ---------------------------------------------------------------
 .proc opcode_04_CALL
-    stack_addr = work+6
     ; read the address from the script
     jsr read_script_word
     stx temp
     sta temp+1
 
     ; get current task number
-    lda state+engine::current_task
-    ; tasks[task_ptr].stack[tasks[task_ptr].stack_pos] = bytecode_pos;
-    asl
-    tax
-    lda task_lookup,x
-    sta task_ptr
-    lda task_lookup+1,x
-    sta task_ptr+1
+    ldx state+engine::current_task
 
-    ; get the task stack_pos
-    ldy #task::stack_pos
-    lda (task_ptr),y
-    asl         ; stack is word-aligned
-    tay         ; save the stack_pos offset
-    
-    ; find the stack address
-    lda task_ptr
+    ; get task stack base address (num * 32) word aligned
+    stx temp+2
+    stz temp+3
+
+    asl temp+2
+    rol temp+3 ; 2
+    asl temp+2
+    rol temp+3 ; 4
+    asl temp+2
+    rol temp+3 ; 8
+    asl temp+2
+    rol temp+3 ; 16
+    asl temp+2
+    rol temp+3 ; 32
+
+    ; add the stack base address to the first task_stack address
     clc
-    adc #task::stack
-    sta stack_addr
-    lda task_ptr+1
-    adc #0
-    sta stack_addr+1
+    lda #<task_stack
+    adc temp+2
+    sta temp+2
+    lda #>task_stack
+    adc temp+3
+    sta temp+3
 
-    ; save bytecode_pos to stack + stack_pos
-    lda state+engine::bytecode_pos 
-    sta (stack_addr),y
-    lda state+engine::bytecode_pos+1
+    ; get the task stack_pos offset
+    lda task_stack_pos,x
+    asl ; stack is word-aligned
+    tay
+
+    ; save the current bytecode_pos to the stack
+    lda state+engine::bytecode_pos
+    sta (temp+2),y
     iny
-    sta (stack_addr),y
+    lda state+engine::bytecode_pos+1
+    sta (temp+2),y
 
-    ; tasks[current_task].stack_pos++;
-    ldy #task::stack_pos
-    lda (task_ptr),y
-    inc
-    sta (task_ptr),y
+    ; increment the stack_pos
+    inc task_stack_pos,x
 
     ; bytecode_pos = addr;
     lda temp
@@ -177,37 +171,47 @@
 ; Pop the stack and return to the previous function
 ; ---------------------------------------------------------------
 .proc opcode_05_RET
-    current_task = temp
-    stack_pos = work+2
-
     ; get current task number
-    lda state+engine::current_task
-    asl
-    tax
-    lda task_lookup,x
-    sta task_ptr
-    lda task_lookup+1,x
-    sta task_ptr+1
+    ldx state+engine::current_task
 
-    ; current_task.stack_pos--;
-    ldy #task::stack_pos
-    lda (task_ptr),y
-    dec
-    sta (task_ptr),y
-
+    ; decrement the stack_pos first
+    dec task_stack_pos,x
+    
+    ; get task stack base address (num * 32) word aligned
+    stx temp
+    stz temp+1
+    asl temp
+    rol temp+1    ; 2
+    asl temp
+    rol temp+1    ; 4
+    asl temp
+    rol temp+1    ; 8 
+    asl temp
+    rol temp+1    ; 16
+    asl temp
+    rol temp+1    ; 32
+    
+    ; add the stack base address to the first task_stack address
+    clc
+    lda #<task_stack
+    adc temp
+    sta temp
+    lda #>task_stack
+    adc temp+1
+    sta temp+1
+    
     ; get the task stack_pos offset
-    asl ; stack is word-aligned
-    sta stack_pos
-
-    ; current_task = tasks[current_task].stack
-    add16 task_ptr, task::stack
-    ldy stack_pos
-    lda (task_ptr),y
+    lda task_stack_pos,x
+    asl            ; stack is word-aligned
+    tay
+    
+    ; load bytecode_pos from the stack
+    lda (temp),y
     sta state+engine::bytecode_pos
     iny
-    lda (task_ptr),y
-    sta state+engine::bytecode_pos+1 ; bytecode_pos = tasks[current_task].stack[tasks[current_task].stack_pos];
-
+    lda (temp),y
+    sta state+engine::bytecode_pos+1
+    
     rts
 .endproc
 
@@ -216,8 +220,9 @@
 ; Pause the current task and return to the main loop
 ; ---------------------------------------------------------------
 .proc opcode_06_YIELD
-    lda #1
-    sta state+engine::task_paused
+    ;lda #1
+    ;sta state+engine::task_paused
+    inc state+engine::task_paused ; increment the task paused counter
     rts
 .endproc
 
@@ -236,28 +241,25 @@
 ; ---------------------------------------------------------------
 ; SETVEC num, addr
 ; Set a new address vector for the specified task
+; task next_pc is set to the new address
 ; ---------------------------------------------------------------
 .proc opcode_08_SETVEC
-    addr = work+2
     ; Read the task number
     read_script_byte
     asl
-    tax
-    lda task_lookup,x
-    sta task_ptr
-    lda task_lookup+1,x
-    sta task_ptr+1
+    pha ; pc is word-aligned
 
+    ; Read the address to set
     jsr read_script_word
-    sta addr+1
-    stx addr
+    sta temp+1
+    stx temp
 
-    ldy #task::next_pc
-    lda addr
-    sta (task_ptr),y
-    iny
-    lda addr+1
-    sta (task_ptr),y
+    ; Set the task next_pc to the new address
+    plx
+    lda temp
+    sta task_next_pc,x
+    lda temp+1
+    sta task_next_pc+1,x
 
     rts
 .endproc
@@ -490,53 +492,46 @@ jump_table:
 ; CCTRL start, end, state
 ; ---------------------------------------------------------------
 .proc opcode_0C_CCTRL
-    ; Read the start task number and set task_ptr
+    ; Read the start task number 
     read_script_byte
-    pha ; save for counting
-    asl
-    tax
-    lda task_lookup,x
-    sta task_ptr
-    lda task_lookup+1,x
-    sta task_ptr+1
+    pha ; start task
 
     jsr read_script_word
     sta end ; end task number
-    stx task_state ; state to set the tasks to
+    stx temp ; state to set the tasks to
     cpx #2
-    bne set_state
+    bne set_state ; if state is 2, kill tasks
 
     ; Kill tasks - set next_pc to -2
-    plx ; counter
+    plx ; pull the starting task for counter
     kill_loop:
+        txa
+        asl
+        tay ; pc is word-aligned
         cpx end
-        beq :+ ; less than or equal to end
-        bcs kill_end
+        beq :+ ; if less than, continue
+        bcs kill_end ; if not equal, continue
         :
-        ldy #task::next_pc
-        lda #$FE    ; -2
-        sta (task_ptr),y
-        iny
+        ; set the next_pc value to -2
+        lda #$FE
+        sta task_next_pc,y
         lda #$FF
-        sta (task_ptr),y
-        add16 task_ptr, .sizeof(task)
+        sta task_next_pc+1,y
         inx
         bra kill_loop
     kill_end:
     rts
 
-    ; Set task state - set next_state to state
     set_state:
+    ; Set task state - set next_state to temp(state)
     plx ; counter
     state_loop:
         cpx end
         beq :+ ; less than or equal to end
         bcs state_end
         :
-        ldy #task::next_state
-        lda task_state
-        sta (task_ptr),y
-        add16 task_ptr, .sizeof(task)
+        lda temp
+        sta task_next_state,x
         inx
         bra state_loop
     state_end:
@@ -823,7 +818,7 @@ jump_table:
     num = temp
     freq = work+2
     volume = work+3
-    channel = stemp+2
+    channel = work+4
     jsr read_script_word
     sta num+1
     stx num
@@ -832,12 +827,10 @@ jump_table:
     sta freq
     stx volume
     lsr volume
-    lsr volume
-    lsr volume
-    lsr volume
+    lsr volume ; I think volume is a 6 bit value, so we shift it down to 4 bits
 
     read_script_byte
-    sta channel
+    sta audio_channel
 
     lda num
     ldx freq

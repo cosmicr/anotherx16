@@ -60,8 +60,8 @@
     phx
     phy
 
-    jsr update_audio
-    jsr update_keyboard
+    ; inc audio_ready ; uncommment to enable sound
+    ;jsr update_keyboard
 
     dec frame_early
 

@@ -8,15 +8,6 @@
 
 MAX_TASKS = 64
 
-.struct task
-    state           .res 1
-    next_state      .res 1
-    pc              .res 2
-    next_pc         .res 2
-    stack           .res 32
-    stack_pos       .res 1
-.endstruct
-
 ; ---------------------------------------------------------------
 ; Read script byte
 ; Returns: A = byte read
