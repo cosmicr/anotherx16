@@ -30,7 +30,7 @@ STARTING_PART = 1
     task_next_pc:       .res 2 * MAX_TASKS ; 128 bytes
     task_stack:         .res 32 * MAX_TASKS ; reserves 32 * 64 = 2kb (such a lot of space for a stack)
     task_stack_pos:     .res 1 * MAX_TASKS ; 64 bytes
-    engine_vars:  .res 512
+    engine_vars:  .res 512 ; 256 * 2
 
 .segment "RODATA"
     part_resources:
@@ -236,8 +236,7 @@ frame_counter:
         lda frame_early ; if interrupt has not been triggered then wait
         beq @no_wait
         wai
-        ; wai ; target 30fps
-
+        wai ; target 30fps
         
     @no_wait:
         lda #2

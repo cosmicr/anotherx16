@@ -482,6 +482,8 @@ skip_dst_hi:
 temp_dst_page: .byte 0
 .endproc
 
+; TODO: copy_page_offset for vertical scrolling
+
 ; ---------------------------------------------------------------
 ; Draw a horizontal line
 ; uses data saved in line_info+line_data struct
@@ -670,7 +672,7 @@ end_line:
 .endproc
 
 .align 32
-.proc draw_line_trans ; todo: use FX for this
+.proc draw_line_trans ; todo: use FX for this?
     lsr line_info+line_data::x1
     lsr line_info+line_data::x2
     ldx line_info+line_data::x1                 ; 3 cycles

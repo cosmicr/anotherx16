@@ -18,6 +18,7 @@
 .segment "ZEROPAGE"
     byte:       .res 1
     addr_ptr:   .res 2
+    page_buffer: .res 2
 
 .segment "BSS"
     start_bank: .res 1
@@ -169,4 +170,61 @@
     lda output_low ; Load first byte back
 
     rts
+.endproc
+
+; reads 256 bytes into page_buffer
+.proc read_page
+    offset_low = byte
+    ; Save parameters
+    sta offset_low
+    ; X and Y will be modified during the read
+    
+    ; Calculate initial bank number: ((Y << 3) | (X >> 5)) + 1
+    tya
+    asl_a 3
+    sta RAM_BANK
+    txa
+    lsr_a 5
+    ora RAM_BANK
+    inc ; assumes first resource bank is $01
+    sta RAM_BANK
+    
+    ; Calculate starting page within bank: (X & $1F) + $A0
+    txa
+    and #$1F
+    clc
+    adc #$A0
+    sta load_byte+2
+    
+    ; Initialize counters
+    ldy #0               ; Buffer index (0-255)
+    ldx offset_low       ; Byte offset within current page
+
+    read_loop:
+    load_byte:
+        lda $A000,x         ; Self-modifying code for page access
+        sta (page_buffer),y
+        
+        ; Advance counters
+        iny                 ; Next buffer position
+        beq read_complete   ; Done when Y wraps from 255 to 0
+        
+        inx                 ; Next source byte
+        bne read_loop       ; Continue if not at page boundary
+        
+        ; Reached page boundary (X wrapped from 255 to 0)
+        ; Advance to next page
+        inc load_byte+2
+        lda load_byte+2
+        cmp #$C0            ; Check if beyond bank boundary ($C0 > $BF)
+        bne read_loop       ; Still within current bank
+        
+        ; Reached bank boundary - switch to next bank
+        inc RAM_BANK
+        lda #$A0
+        sta load_byte+2     ; Reset to first page of new bank
+        jmp read_loop
+        
+    read_complete:
+        rts
 .endproc

@@ -25,6 +25,11 @@
     end:        .res 1
 
 .segment "RODATA"
+    ; lookup table for stack base address - 128 bytes
+    stack_base_addresses:
+        .repeat 64, i
+            .word task_stack + (i * 32) ; each task stack is 32 bytes
+        .endrepeat
 
 .segment "CODE"
 
@@ -86,20 +91,19 @@
 ; ---------------------------------------------------------------
 .proc opcode_03_ADDC
     read_script_byte
-    sta temp ; 3
+    sta temp ; var number
 
     jsr read_script_word
-    sta temp+1 ; save high byte ; 3
+    sta temp+1 ; value high byte
 
-    ldy temp ; dst is in Y ; 3
-    txa ; 2
-    clc ; 2
-    adc engine_vars,y ; 4
-    sta engine_vars,y ; 5
-    lda temp+1 ; 3
-    adc engine_vars+256,y ; 4
-    sta engine_vars+256,y ; 5
-    ; 34 cycles total
+    ldy temp ; var number to Y
+    txa ; low byte of value to A
+    clc
+    adc engine_vars,y
+    sta engine_vars,y
+    lda temp+1
+    adc engine_vars+256,y
+    sta engine_vars+256,y
     
     rts
 .endproc
@@ -118,34 +122,22 @@
     ; get current task number
     ldx state+engine::current_task
 
-    ; get task stack base address (num * 32) word aligned
-    stx temp+2
-    stz temp+3
-
-    asl temp+2
-    rol temp+3 ; 2
-    asl temp+2
-    rol temp+3 ; 4
-    asl temp+2
-    rol temp+3 ; 8
-    asl temp+2
-    rol temp+3 ; 16
-    asl temp+2
-    rol temp+3 ; 32
-
-    ; add the stack base address to the first task_stack address
-    clc
-    lda #<task_stack
-    adc temp+2
-    sta temp+2
-    lda #>task_stack
-    adc temp+3
-    sta temp+3
-
     ; get the task stack_pos offset
     lda task_stack_pos,x
     asl ; stack is word-aligned
     tay
+
+    ; increment the stack_pos
+    inc task_stack_pos,x
+
+    ; get task stack base address (num * 32) word aligned
+    txa
+    asl ; multiply by 2 to get the index into the stack_base_addresses
+    tax ; x now contains the task number * 2
+    lda stack_base_addresses,x ; get the base address of the task stack
+    sta temp+2
+    lda stack_base_addresses+1,x ; get the base address of the task stack
+    sta temp+3
 
     ; save the current bytecode_pos to the stack
     lda state+engine::bytecode_pos
@@ -153,9 +145,6 @@
     iny
     lda state+engine::bytecode_pos+1
     sta (temp+2),y
-
-    ; increment the stack_pos
-    inc task_stack_pos,x
 
     ; bytecode_pos = addr;
     lda temp
@@ -176,34 +165,20 @@
 
     ; decrement the stack_pos first
     dec task_stack_pos,x
-    
-    ; get task stack base address (num * 32) word aligned
-    stx temp
-    stz temp+1
-    asl temp
-    rol temp+1    ; 2
-    asl temp
-    rol temp+1    ; 4
-    asl temp
-    rol temp+1    ; 8 
-    asl temp
-    rol temp+1    ; 16
-    asl temp
-    rol temp+1    ; 32
-    
-    ; add the stack base address to the first task_stack address
-    clc
-    lda #<task_stack
-    adc temp
-    sta temp
-    lda #>task_stack
-    adc temp+1
-    sta temp+1
-    
+
     ; get the task stack_pos offset
     lda task_stack_pos,x
     asl            ; stack is word-aligned
-    tay
+    tay ; stack index in y
+    
+    ; x = current task number
+    txa
+    asl ; word aligned
+    tax
+    lda stack_base_addresses,x ; get the base address of the task stack
+    sta temp
+    lda stack_base_addresses+1,x ; get the base address of the task stack
+    sta temp+1
     
     ; load bytecode_pos from the stack
     lda (temp),y
@@ -220,9 +195,7 @@
 ; Pause the current task and return to the main loop
 ; ---------------------------------------------------------------
 .proc opcode_06_YIELD
-    ;lda #1
-    ;sta state+engine::task_paused
-    inc state+engine::task_paused ; increment the task paused counter
+    inc state+engine::task_paused ; set pause flag
     rts
 .endproc
 
@@ -247,19 +220,18 @@
     ; Read the task number
     read_script_byte
     asl
-    pha ; pc is word-aligned
+    sta temp ; pc is word-aligned
 
     ; Read the address to set
     jsr read_script_word
     sta temp+1
-    stx temp
+    txa ; A now contains low byte
 
     ; Set the task next_pc to the new address
-    plx
-    lda temp
-    sta task_next_pc,x
+    ldy temp ; task number
+    sta task_next_pc,y
     lda temp+1
-    sta task_next_pc+1,x
+    sta task_next_pc+1,y
 
     rts
 .endproc
@@ -272,7 +244,7 @@
     addr = temp
     ; Read the variable num
     read_script_byte
-    pha
+    sta temp+2
 
     ; Read the address to jump to
     jsr read_script_word
@@ -280,17 +252,17 @@
     stx addr
 
     ; Decrement the variable
-    plx
-    lda engine_vars,x
-    bne :+                          ; decrement if not zero
-    dec engine_vars+256,x    ; otherwise decrement both
+    ldx temp+2
+    lda engine_vars,x ; if not zero, decrement low byte only
+    bne :+
+    dec engine_vars+256,x
     : 
     dec engine_vars,x
 
     ; Check if the result is zero
     lda engine_vars,x
     ora engine_vars+256,x
-    beq @end ; result is zero
+    beq end ; result is zero, don't jump
 
     ; If not zero, jump to the specified address
     lda addr
@@ -298,14 +270,14 @@
     lda addr+1
     sta state+engine::bytecode_pos+1
 
-    @end:
+    end:
     rts
 .endproc
 
 ; ---------------------------------------------------------------
-; CJMP cond_type, b, a, addr
+; CJMP cond_type, right(idx), left(val/idx), addr
 ; Jump based on the condition type and the values of b and a
-; cond_type: bit 7 = immediate, bit 6 = variable, bits 0,1,2 = condition type
+; cond_type: bit 7 = variable, bit 6 = immediate, bits 0,1,2 = condition type
 ; ---------------------------------------------------------------
 .proc opcode_0A_CJMP
     cond_type = temp
@@ -317,7 +289,7 @@
     jsr read_script_word
     sta cond_type
 
-    ; Read the variable index for the right operand and load its value
+    ; Read the b variable index for the right operand and load its value
     ; index is in X (from word read above)
     lda engine_vars,x
     sta right_val
@@ -327,11 +299,11 @@
     ; Check the condition type to determine how to read the left operand
     lda cond_type
     bit #$80            ; if cond_type & 0x80
-    bne read_left_var  ; bit 7 is set
+    bne read_left_var  ; bit 7 is set - use variable value
     and #$40            ; else if cond_type & 0x40
-    bne read_left_word
+    bne read_left_word ; bit 6 is set - use immediate value
 
-    ; Read an 8-bit immediate value for the left operand
+    ; Read an 8-bit immediate value for the left operand (neither 6 nor 7 bits set)
     read_script_byte
     sta left_val
     stz left_val+1
@@ -397,7 +369,7 @@ jump_table:
 @gt:
     ; Jump if right_val > left_val (signed comparison)
     lda right_val+1
-    eor left_val+1
+    eor left_val+1 ; 0 xor 0 = 0; 1 xor 1 = 0;
     bmi @gt_diff_signs
     lda right_val+1
     cmp left_val+1
@@ -492,9 +464,10 @@ jump_table:
 ; CCTRL start, end, state
 ; ---------------------------------------------------------------
 .proc opcode_0C_CCTRL
+stp
     ; Read the start task number 
     read_script_byte
-    pha ; start task
+    sta temp+1 ; start task
 
     jsr read_script_word
     sta end ; end task number
@@ -503,14 +476,14 @@ jump_table:
     bne set_state ; if state is 2, kill tasks
 
     ; Kill tasks - set next_pc to -2
-    plx ; pull the starting task for counter
+    ldx temp+1 ; pull the starting task for counter
     kill_loop:
         txa
         asl
         tay ; pc is word-aligned
         cpx end
-        beq :+ ; if less than, continue
-        bcs kill_end ; if not equal, continue
+        beq :+ ; if equal, continue
+        bcs kill_end ; if greater than end, stop
         :
         ; set the next_pc value to -2
         lda #$FE
@@ -524,11 +497,11 @@ jump_table:
 
     set_state:
     ; Set task state - set next_state to temp(state)
-    plx ; counter
+    ldx temp+1 ; counter
     state_loop:
         cpx end
-        beq :+ ; less than or equal to end
-        bcs state_end
+        beq :+ ; continue if equal
+        bcs state_end ; if greater than end, stop
         :
         lda temp
         sta task_next_state,x
@@ -576,33 +549,41 @@ jump_table:
     get_page
     sta dst         ; store dst for comparison
     
-    ; Quick check for normal path first
+    ; Quick check for direct page copy
     lda src
-    cmp #$FE
-    bcc vscroll_rare
+    cmp #$FE ; if src is $FE or $FF, we can do a direct page copy
+    bcc conditional_copy
     
-    ; Normal path
+    ; Direct page copy
     get_page 
     ldx dst
     jsr copy_page
     rts 
 
-    vscroll_rare: 
-    ; Check if we need to clear vscroll (if bit 7 clear)
-    bit #$80 
-    bmi skip_clear 
-    stz vscroll
-
+    conditional_copy: 
+    ; If bit 7 of src is clear, we clear vscroll
+    bmi skip_clear ; if bit 7 is set, we don't clear vscroll
+    stz vscroll 
+    bra continue ; temporary - remove later
     skip_clear:
-    lda src
-    and #3               ; mask to page number
+stp
+    continue:
+    ; now do the copy
+    and #3 ; remove vscroll bit
     get_page 
     sta src
     cmp dst
     beq done
+    ; vscroll should only happen if the amount is > -SCREEN_H or < SCREEN_H
+    ; normal copy if vscroll is zero
     ldx dst
     jsr copy_page
-    
+    ; vscroll is number of lines to scroll (y offset)
+    ; if vscroll is negative, copy from src-vscroll to dst
+    ; todo: handle vscroll up
+    ; if vscroll is positive, copy to dst+vscroll from src
+    ; todo: handle vscroll down
+
     done:
     rts
 .endproc
@@ -819,6 +800,7 @@ jump_table:
     freq = work+2
     volume = work+3
     channel = work+4
+
     jsr read_script_word
     sta num+1
     stx num
@@ -828,13 +810,17 @@ jump_table:
     stx volume
     lsr volume
     lsr volume ; I think volume is a 6 bit value, so we shift it down to 4 bits
-
+    
     read_script_byte
-    sta audio_channel
+    asl
+    asl
+    asl
+    asl
+    ora volume
+    tay ; volume in low and channel in high nibble
 
     lda num
     ldx freq
-    ldy volume
     jsr play_sample
 
     rts

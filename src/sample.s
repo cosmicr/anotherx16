@@ -17,56 +17,38 @@
 .include "bank.inc"
 
 .segment "ZEROPAGE"
-    sample_resource:    .res 2
-    samples_to_fill:    .res 1 ; Number of samples to fill in FIFO
-    left_sample:         .res 1 ; Left channel sample
-    right_sample:        .res 1 ; Right channel sample
-    temp_x:            .res 1 ; Temporary X register for calculations
-    stemp:            .res 1 ; Temporary storage for sample value
-    audio_channel:      .res 1 ; Current audio channel being processed
-
-.segment "DATA"
+    stemp:              .res 4 ; Temporary storage for sample value
     audio_ready:        .res 1 ; Flag to indicate if audio is ready
 
+.segment "DATA"
     channels:
+    channel0:         .tag CHANNEL
     channel1:         .tag CHANNEL
     channel2:         .tag CHANNEL
+    channel3:         .tag CHANNEL
+
+    channel_buffer0: .res 256 ; Buffer for channel 0
+    channel_buffer1: .res 256 ; Buffer for channel 1
+    channel_buffer2: .res 256 ; Buffer for channel 2
+    channel_buffer3: .res 256 ; Buffer for channel 3
 
 .segment "RODATA"
-    ; formula is: int(128 * freq / 48828.125)
-    pcm_freq_table:
-        ; Original table based on formula above
-        ; .byte 9, 9, 10, 10, 11, 12, 12, 13
-        ; .byte 14, 15, 16, 16, 17, 18, 20, 21
-        ; .byte 22, 23, 25, 26, 28, 29, 31, 33
-        ; .byte 35, 37, 39, 42, 44, 46, 49, 52
-        ; .byte 55, 59, 62, 66, 70, 74, 78, 83
+    channel_clear_masks:
+    .byte %11111110  ; Clear mask for channel 0
+    .byte %11111101  ; Clear mask for channel 1  
+    .byte %11111011  ; Clear mask for channel 2
+    .byte %11110111  ; Clear mask for channel 3
 
-        ; old table based on 44100Hz sample rate
-        .byte 9, 9, 10, 10, 11, 11, 11, 12
-        .byte 12, 13, 14, 14, 15, 15, 16, 17
-        .byte 18, 19, 19, 20, 22, 22, 23, 24
-        .byte 26, 28, 29, 30, 32, 34, 36, 38
-        .byte 40, 43, 45, 48, 51, 54, 58, 62
+    FREQ = 11025 ; Playback frequency in Hz (target: 22050)
 
-        ; Linear
-        ; .byte 9, 10, 12, 14, 16, 18, 20, 22, 24, 26
-        ; .byte 27, 29, 31, 33, 35, 37, 39, 41, 43, 45
-        ; .byte 46, 48, 50, 52, 54, 56, 58, 60, 62, 64
-        ; .byte 65, 67, 69, 71, 73, 75, 77, 79, 81, 83
-
-        ; Logarithmic
-        ; .byte 9, 17, 24, 29, 33, 37, 40, 43, 46, 48
-        ; .byte 51, 53, 55, 56, 58, 60, 61, 62, 64, 65
-        ; .byte 66, 67, 68, 70, 71, 72, 72, 73, 74, 75
-        ; .byte 76, 77, 78, 78, 79, 80, 81, 81, 82, 83
-
+    pcm_freq_table: ; note this method makes the entries big endian as they are stored in literal order
+    .word ($0CFF << 8) / FREQ, ($0DC3 << 8) / FREQ, ($0E91 << 8) / FREQ, ($0F6F << 8) / FREQ, ($1056 << 8) / FREQ, ($114E << 8) / FREQ, ($1259 << 8) / FREQ, ($136C << 8) / FREQ
+    .word ($149F << 8) / FREQ, ($15D9 << 8) / FREQ, ($1726 << 8) / FREQ, ($1888 << 8) / FREQ, ($19FD << 8) / FREQ, ($1B86 << 8) / FREQ, ($1D21 << 8) / FREQ, ($1EDE << 8) / FREQ
+    .word ($20AB << 8) / FREQ, ($229C << 8) / FREQ, ($24B3 << 8) / FREQ, ($26D7 << 8) / FREQ, ($293F << 8) / FREQ, ($2BB2 << 8) / FREQ, ($2E4C << 8) / FREQ, ($3110 << 8) / FREQ
+    .word ($33FB << 8) / FREQ, ($370D << 8) / FREQ, ($3A43 << 8) / FREQ, ($3DDF << 8) / FREQ, ($4157 << 8) / FREQ, ($4538 << 8) / FREQ, ($4998 << 8) / FREQ, ($4DAE << 8) / FREQ
+    .word ($5240 << 8) / FREQ, ($5764 << 8) / FREQ, ($5C9A << 8) / FREQ, ($61C8 << 8) / FREQ, ($6793 << 8) / FREQ, ($6E19 << 8) / FREQ, ($7485 << 8) / FREQ, ($7BBD << 8) / FREQ
 
 .segment "CODE"
-
-;;; TODO: *** MASSIVE CHANGES HERE, GO BACK TO ONE CHANNEL ***
-; use the 2-channel stereo mode, or even just 1 channel and keep it simple?
-; consider megadrive audio for music (if we have the speed)
 
 ; ---------------------------------------------------------------
 ; Initialize audio system
@@ -74,9 +56,9 @@
 .proc init_audio
     ; Initialize VERA audio
     stz VERA::PCM::DATA
-    lda #%00010000 ; set PCM mode to 8-bit stereo and volume to zero
+    lda #%00000000 ; set PCM mode to 8-bit mono and volume to zero
     sta VERA::PCM::CTRL
-    lda #((11025 * 128) / 48828)    ; Set sample rate to approx 11kHz
+    lda #((FREQ * 128) / 48828)    ; Set sample rate to approx 11kHz
     sta VERA::PCM::RATE
 
     ; Clear all channels
@@ -86,20 +68,73 @@
         dex
         bpl clear_loop
 
-    lda #1
-    sta audio_ready ; Set audio ready flag
+    inc audio_ready ; Set audio ready flag
 
     rts
 .endproc
 
+.macro setup_channel channel
+    sta channel+CHANNEL::volume
+    ; exit if resource not loaded
+    ldy #resource::status
+    lda (sample_resource),y
+    bne :+
+    rts
+    :
+    ; set start address
+    stz channel+CHANNEL::current
+    ldy #resource::pointer
+    lda (sample_resource),y
+    sta channel+CHANNEL::current+1
+    iny
+    lda (sample_resource),y
+    sta channel+CHANNEL::current+2
+    iny
+    lda (sample_resource),y
+    sta channel+CHANNEL::current+3
+    ; set end address
+    clc
+    ldy #resource::uncompressed
+    lda (sample_resource),y
+    adc channel+CHANNEL::current+1
+    sta channel+CHANNEL::end
+    iny
+    lda (sample_resource),y
+    adc channel+CHANNEL::current+2
+    sta channel+CHANNEL::end+1
+    iny
+    lda (sample_resource),y
+    adc channel+CHANNEL::current+3
+    sta channel+CHANNEL::end+2
+    ; set frequency
+
+    asl freq
+    ldx freq
+    lda pcm_freq_table,x ; get frequency from table
+    sta channel+CHANNEL::phase_step
+    lda pcm_freq_table+1,x 
+    sta channel+CHANNEL::phase_step+1 ; for some reason the table is in big-endian format?
+
+    ; clear the buffer
+    lda #$FF
+    sta channel+CHANNEL::buffer_pos
+
+    ; set playing flag
+    inc channel+CHANNEL::playing
+.endmacro
+
 ; ---------------------------------------------------------------
-; Play a sample
+; Play a sample - sets a channel to play a sample
 ; A: Resource number
 ; X: Frequency
-; Y: Volume
+; Y: low byte: Volume (0-15) high byte: Channel number (0-3)
 ; ---------------------------------------------------------------
-.proc play_sample ; TODO: instead of finding a free channel, use channel1 for original 1 and 3, and channel2 for 2 and 4
-    stx stemp ; Save frequency in temp
+.proc play_sample 
+    freq = stemp
+    sample_resource = stemp+1
+    offset = stemp+3
+
+    stx freq ; Save frequency in temp
 
     ; Get resource info
     tax ; X = resource number
@@ -108,6 +143,7 @@
     lda #>resource_table
     sta sample_resource+1
 
+    ; todo: use a lookup table for offset?
     ; Calculate resource offset in table
     offset_loop:
         clc
@@ -121,70 +157,34 @@
         bne offset_loop
     ; sample_resource now points to the resource info
 
-    ; Find a free channel
-    lda audio_channel
-    and #1 ; Toggle between channel 1 and 2
-    beq use_channel1
-    ; use_channel2:
-    ldx #.sizeof(CHANNEL) ; Use channel 2
-    lda channel2+CHANNEL::playing
-    beq found_channel
-    use_channel1:
-    ldx #0 ; Use channel 1
-    lda channel1+CHANNEL::playing
-    beq found_channel
-    rts ; No free channels
-    
-    found_channel:
-    ; Copy resource info to channel
+    ; get the channel number and volume from Y
     tya
-; ; TEMPORARY:
-; lda #$06
-    sta channels+CHANNEL::volume,x
-    ; exit if resource not loaded
-    ldy #resource::status
-    lda (sample_resource),y
-    bne :+
-    rts
-    :
-    ; set start address
-    ldy #resource::pointer
-    lda (sample_resource),y
-    sta channels+CHANNEL::start,x
-    sta channels+CHANNEL::current,x
-    iny
-    lda (sample_resource),y
-    sta channels+CHANNEL::start+1,x
-    sta channels+CHANNEL::current+1,x
-    iny
-    lda (sample_resource),y
-    sta channels+CHANNEL::start+2,x
-    sta channels+CHANNEL::current+2,x
-    iny
-    lda (sample_resource),y
-    sta channels+CHANNEL::start+3,x
-    sta channels+CHANNEL::current+3,x
-    ; set end address
-    clc
-    ldy #resource::uncompressed
-    lda (sample_resource),y
-    adc channels+CHANNEL::start,x
-    sta channels+CHANNEL::end,x
-    iny
-    lda (sample_resource),y
-    adc channels+CHANNEL::start+1,x
-    sta channels+CHANNEL::end+1,x
-    iny
-    lda (sample_resource),y
-    adc channels+CHANNEL::start+2,x
-    sta channels+CHANNEL::end+2,x
-    ; set frequency
-    lda stemp
-    sta channels+CHANNEL::frequency,x
-    ; set playing flag
-    lda #1
-    sta channels+CHANNEL::playing,x
+    lsr
+    lsr
+    lsr
+    lsr ; we need the extra lsr here for rounding before the asl
+    asl ; shift left for word address
+    tax ; X = channel number (0-3) * 2
+    tya ; Y = volume (0-15)
+    and #%00001111 ; mask to get volume (0-15)
+    jmp (channel_setup_table,x) ; jump to channel setup routine
 
+    ; jump table for each channel
+    channel_setup_table:
+    .addr channel_0_setup, channel_1_setup, channel_2_setup, channel_3_setup
+
+    ; This is a large amount of code, but it unrolls the setup for each channel
+    channel_0_setup:
+        setup_channel channel0
+    rts
+    channel_1_setup:
+        setup_channel channel1
+    rts
+    channel_2_setup:
+        setup_channel channel2
+    rts
+    channel_3_setup:
+        setup_channel channel3
     rts
 .endproc
 
@@ -198,159 +198,164 @@
 
     stz audio_ready ; Clear audio ready flag
 
-    ; Check if any channel is playing
-    lda channel1+CHANNEL::playing
-    ora channel2+CHANNEL::playing
-    beq done ; no channels playing
+    ; set volume (todo: adjust volume based on channel)
+    lda #%00001000
+    sta VERA::PCM::CTRL
 
     ; Keep filling until FIFO is full or no channels playing
     fill_until_full:
-    ; Read FIFO status
-    lda VERA::PCM::CTRL
-    bit #%10000000 ; check if FIFO is full
-    bne done ; FIFO is full, we're done
+        ; Read FIFO status
+        lda VERA::PCM::CTRL
+        bit #%10000000 ; check if FIFO is full
+        bne done ; FIFO is full, we're done
 
-    ; FIFO has space - fill it
-    lda #192
-    sta samples_to_fill
-    jsr fill_fifo
-    
-    ; Check if any channels are still playing
-    lda channel1+CHANNEL::playing
-    ora channel2+CHANNEL::playing
-    bne fill_until_full ; still playing, keep filling
-    
+        ; if all channels are not playing, stop filling
+        lda channel0+CHANNEL::playing
+        ora channel1+CHANNEL::playing
+        ora channel2+CHANNEL::playing
+        ora channel3+CHANNEL::playing
+        beq done ; no channels playing, we're done
+
+        ; FIFO has space - fill it
+        jsr fill_fifo
+
+        bra fill_until_full ; still playing, keep filling
     done:
     rts
 .endproc
 
+.macro increment_and_check_end channel, channel_num
+.scope
+    ; Increment current sample and check if we reached the end
+    clc
+    lda channel+CHANNEL::phase_step
+    adc channel+CHANNEL::current
+    sta channel+CHANNEL::current
+    lda channel+CHANNEL::phase_step+1
+    adc channel+CHANNEL::current+1
+    sta channel+CHANNEL::current+1
+    lda #0
+    adc channel+CHANNEL::current+2
+    sta channel+CHANNEL::current+2
+    ; lda #0
+    ; adc channel+CHANNEL::current+3
+    ; sta channel+CHANNEL::current+3
+
+    ; todo: this isn't quite right as it might skip some bytes at the start
+    lda channel+CHANNEL::current+1
+    sta channel+CHANNEL::buffer_pos
+
+    ; Check if we reached the end of the sample
+    lda channel+CHANNEL::current+3
+    cmp channel+CHANNEL::end+2
+    bcc done ; if current sample >= end, skip increment
+    bne stop
+    lda channel+CHANNEL::current+2
+    cmp channel+CHANNEL::end+1
+    bcc done ; if current sample >= end, skip increment
+    bne stop
+    lda channel+CHANNEL::current+1
+    cmp channel+CHANNEL::end
+    bcc done ; if current sample >= end, skip increment
+
+    stop:
+    stz channel+CHANNEL::playing ; stop playing if we reached the end
+    done:
+.endscope
+.endmacro
+
+.macro get_buffer_byte channel, buffer
+.scope
+    ; todo: only get a byte if we incremented, otherwise cache the previous
+    ; if the buffer is empty, fill it
+    lda channel+CHANNEL::buffer_pos
+    cmp #$FF
+    jne get_byte ; if pos at $FF, buffer is depleted, fill it
+    lda #<(buffer)
+    sta page_buffer
+    lda #>(buffer)
+    sta page_buffer+1
+    ldy channel+CHANNEL::current+3 ; upper byte
+    lda channel+CHANNEL::current+2 ; mid byte
+    sta stemp
+    lda channel+CHANNEL::current+1 ; low byte
+    ldx stemp
+    jsr read_page
+    stz channel+CHANNEL::buffer_pos ; increment buffer position
+    get_byte:
+    ; buffer is not empty, get byte from buffer
+    ldx channel+CHANNEL::buffer_pos
+    lda buffer, x
+    done:
+.endscope
+.endmacro
+
+.macro load_sample_byte channel, channel_num
+.scope
+        lda channel+CHANNEL::playing
+        jeq skip_channel
+        ; channel is playing, get next sample
+        get_buffer_byte channel, channel_buffer0+channel_num*256 ; Load byte from buffer
+        jpl positive
+        clc ; sign extend negative sample
+        adc final_sample
+        sta final_sample
+        lda #$FF
+        adc final_sample+1
+        sta final_sample+1
+        jra done
+        positive:
+        clc
+        adc final_sample
+        sta final_sample
+        lda #$00
+        adc final_sample+1
+        sta final_sample+1
+        done:
+        increment_and_check_end channel, channel_num
+        skip_channel:
+.endscope
+.endmacro
+
 ; ---------------------------------------------------------------
 ; Bulk fill FIFO with samples_to_fill
 ; ----------------------------------------------------------------
+; TODO: Change to Channel 0 and 2 left, Channel 1 and 3 right
+; TODO: Volume is important (some samples play at zero volume)
 .proc fill_fifo
+    final_sample = stemp+1
+    num_loops = stemp+3
+
+    lda #36 ; sweet spot for 11025Hz
+    sta num_loops ; Set number of samples to fill
+    stz final_sample ; clear final_sample
+    stz final_sample+1
     fill_loop:
-        lda samples_to_fill
-        jeq fill_done
+        dec num_loops
+        jeq fill_done ; if no more samples to fill, we're done
+        ; get a sample from each channel
+        load_sample_byte channel0, 0
+        load_sample_byte channel1, 1
+        load_sample_byte channel2, 2
+        load_sample_byte channel3, 3
 
-        ; set volume based on channel 1 and 2 average
-        clc
-        lda channel1+CHANNEL::volume
-        adc channel2+CHANNEL::volume
-        lsr ; divide by 2 for average
-        ora #%00010000 ; stereo mode
-        sta VERA::PCM::CTRL
+        ; Divide by 4 to average the samples
+        ; Since result always fits in 8-bit, we can optimize
+        lda final_sample+1
+        cmp #$80               ; Set carry if negative
+        ror final_sample+1     ; Arithmetic shift right
+        ror final_sample
+        cmp #$80               ; Set carry if still negative  
+        ror final_sample+1     ; Arithmetic shift right again
+        ror final_sample
+        
+        ; Output (no clamping needed - guaranteed to fit!)
+        lda final_sample
+        sta VERA::PCM::DATA
 
-        stz left_sample
-        stz right_sample
-        
-        check_channel1:
-        lda channel1+CHANNEL::playing
-        beq check_channel2 ; if channel 1 is not playing, go to channel 2 only
-        ldx #0
-        jsr get_next_sample
-        sta left_sample
-        bcs :+
-        stz channel1+CHANNEL::playing ; if channel 1 ended, clear playing flag
-        :
-        
-        check_channel2:
-        lda channel2+CHANNEL::playing
-        beq determine_output
-        ldx #.sizeof(CHANNEL)
-        jsr get_next_sample
-        sta right_sample
-        bcs :+
-        stz channel2+CHANNEL::playing ; if channel 2 ended, clear playing flag
-        :
-        
-        ; Determine output based on which channels are playing
-        determine_output:
-        lda channel1+CHANNEL::playing
-        bne ch1_active
-        lda channel2+CHANNEL::playing
-        bne ch2_only
-        ; Both channels inactive - output silence (already zeroed)
-        bra write_data
-        
-        ch1_active:
-        ldx channel1+CHANNEL::frequency
-        lda pcm_freq_table, x ; get frequency from table
-        sta VERA::PCM::RATE
-        lda channel2+CHANNEL::playing
-        bne write_data ; both channels active, use normal left/right
-        ; Only channel 1 active - copy to both sides
-        ldx channel1+CHANNEL::frequency
-        lda pcm_freq_table, x ; get frequency from table
-        sta VERA::PCM::RATE
-        lda left_sample
-        sta right_sample
-        bra write_data
-        
-        ch2_only:
-        ; Only channel 2 active - copy to both sides
-        ldx channel2+CHANNEL::frequency
-        lda pcm_freq_table, x ; get frequency from table
-        sta VERA::PCM::RATE
-        lda right_sample
-        sta left_sample
-        
-        ; write data to FIFO
-        write_data:
-        lda left_sample
-        sta VERA::PCM::DATA ; write left channel sample
-        lda right_sample
-        sta VERA::PCM::DATA ; write right channel sample
-        dec samples_to_fill
-        bra fill_loop
+        jmp fill_loop ; continue filling
         
     fill_done:
         rts
 .endproc
-
-; ---------------------------------------------------------------
-; Get next sample from the active channel
-; X: Channel offset
-; Returns A: Sample value, C: 1 if still playing
-; ----------------------------------------------------------------
-.proc get_next_sample
-    stx temp_x ; save channel offset
-    ; get raw sample data
-    ldy channels+CHANNEL::current+2,x ; upper byte
-    lda channels+CHANNEL::current+1,x ; mid byte
-    sta stemp
-    lda channels+CHANNEL::current,x ; low byte
-    ldx stemp
-    jsr read_byte ; TODO: cache sounds in a specific bank
-    sta stemp
-
-    ldx temp_x ; restore channel offset
-    inc channels+CHANNEL::current, x ; increment current sample
-    bne :+
-    inc channels+CHANNEL::current+1, x ; increment high byte
-    bne :+
-    inc channels+CHANNEL::current+2, x ; increment upper byte
-    :
-
-    ; check if we reached the end of the sample
-    lda channels+CHANNEL::end+2, x
-    cmp channels+CHANNEL::current+2, x
-    bne still_playing
-    lda channels+CHANNEL::end+1, x
-    cmp channels+CHANNEL::current+1, x
-    bne still_playing
-    lda channels+CHANNEL::end, x
-    cmp channels+CHANNEL::current, x
-    bne still_playing
-
-    ; end of sample reached
-    lda stemp ; sample
-    clc ; not playing
-    rts
-
-    still_playing:
-    lda stemp ; sample
-    sec ; still playing
-    rts
-.endproc
-
 

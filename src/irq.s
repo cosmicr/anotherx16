@@ -60,9 +60,7 @@
     phx
     phy
 
-    ; inc audio_ready ; uncommment to enable sound
-    ;jsr update_keyboard
-
+    inc audio_ready ; uncommment to enable sound
     dec frame_early
 
     ply

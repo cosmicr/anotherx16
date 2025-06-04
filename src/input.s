@@ -10,8 +10,10 @@
 .include "engine.inc"
 
 .segment "ZEROPAGE"
+    joy_type:      .byte 1 ; 0 = keyboard joystick, 1 = gamepad joystick
     key_flags:     .res 1          ; bit‑field (pressed = 1)
-.export key_flags
+    joy_byte0: .res 1
+    joy_byte1: .res 1
 
 .segment "CODE"
 
@@ -19,8 +21,15 @@
 ; Setup Input
 ; ---------------------------------------------------------------------------
 .proc init_input
-        stz key_flags
-        rts
+    lda joy_type
+    jsr $FF56 ; JOYSTICK_GET
+    cpy #$00 ; if y is $00, joystick 1 is present
+    beq joystick_present
+    stz joy_type ; use keyboard joystick
+
+    joystick_present:
+    stz key_flags
+    rts
 .endproc
 
 ; ---------------------------------------------------------------------------
@@ -31,9 +40,9 @@
 .proc update_joystick
     ; Get keyboard joystick state (joystick 0)
     ; No need to call joystick_scan - the IRQ handler does this automatically
-    lda #0
+    lda joy_type
     jsr $FF56 ; JOYSTICK_GET
-    
+
     ; .A now contains byte 0 (d-pad + face buttons)
     ; .X now contains byte 1 (shoulder buttons + A/X buttons)
     ; .Y contains presence flag ($00 = present, $FF = not present)
@@ -100,10 +109,6 @@
     
     done:
     rts
-
-    ; Local storage for joystick data
-    joy_byte0: .res 1
-    joy_byte1: .res 1
 .endproc
 
 ; ---------------------------------------------------------------------------

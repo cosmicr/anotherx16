@@ -21,6 +21,8 @@
                             .res 2
     dummy_loc:      .res 320
 
+.export next_bank
+
 .segment "BSS"
     resource_table:         .res MAX_RESOURCES * .sizeof(resource)
 
@@ -197,7 +199,6 @@
     cmp #MAX_RESOURCES
     jcs invalid_resource_error
 
-
     ; concatenate the filename with the resource number in hex
     pha
     lsr
@@ -230,7 +231,7 @@
     sta work
     lda #>resource_table
     sta work+1
-    @table_loop:
+    @table_loop: ; todo: use a lookup table 
         clc
         lda #.sizeof(resource)
         adc work
@@ -321,8 +322,8 @@
     lda RAM_BANK
     sta next_bank
 
-    ; todo: what if we run out of memory?
-    ; todo: check if we have 512kb or 2mb of memory
+    ; note: what if we run out of memory?
+    ; note: 512kb should be enough, but maybe check if we have 512kb or 2mb of memory?
 
     resource_loaded:
     lda work
