@@ -7,7 +7,7 @@
 
 .global init_vera, clear_page, clear_text_screen, clear_page, clear_text_screen
 .global set_addr_page, set_palette, set_vera_page
-.global copy_page_screen, copy_screen_page, copy_page
+.global copy_page_screen, copy_screen_page, copy_page, copy_page_scroll
 .global draw_line, draw_pixel
 .global color_lookup_shifted
 .global copy_active

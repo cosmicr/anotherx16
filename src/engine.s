@@ -24,12 +24,14 @@ STARTING_PART = 1
     state:   .res .sizeof(engine)
 
 .segment "BSS"
+.align 256
     task_state:         .res 1 * MAX_TASKS ; 64 bytes
     task_next_state:    .res 1 * MAX_TASKS ; 64 bytes
     task_pc:            .res 2 * MAX_TASKS ; 128 bytes
     task_next_pc:       .res 2 * MAX_TASKS ; 128 bytes
     task_stack:         .res 32 * MAX_TASKS ; reserves 32 * 64 = 2kb (such a lot of space for a stack)
     task_stack_pos:     .res 1 * MAX_TASKS ; 64 bytes
+.align 256
     engine_vars:  .res 512 ; 256 * 2
 
 .segment "RODATA"
@@ -145,7 +147,12 @@ STARTING_PART = 1
     stz next_offset+1
     stz next_offset+2
     stz next_offset+3
-    
+
+    pha
+    jsr init_resources ; reset resources
+    jsr init_audio ; reset audio
+    pla
+
     ; get the offset into the part_resources table
     sta state+engine::part
     asl
@@ -199,11 +206,7 @@ STARTING_PART = 1
 ; Update Display - updates the specified display page
 ; A: page number
 ; ---------------------------------------------------------------
-frame_counter:
-    .byte 0,0,0
-.export frame_counter
 .proc update_display
-    inc24 frame_counter
     cmp #$fe
     beq set_next_palette
 

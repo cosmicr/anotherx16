@@ -5,6 +5,7 @@
 
 .global init_resources, load_resource
 .global resource_table, next_offset, next_bank
+.global resource_table_offsets_low, resource_table_offsets_high
 
 MAX_RESOURCES = 146
 RESOURCE_BANK_START = $01

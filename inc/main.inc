@@ -4,4 +4,3 @@
 ; ---------------------------------------------------------------
 
 .globalzp work, temp, read, mtemp, flag, frame_early
-.global frame_counter

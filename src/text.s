@@ -73,7 +73,7 @@
         ; .byte $00,$00,$7C,$08,$10,$20,$7C,$00,$60,$90,$20,$40,$F0,$00,$00,$00 ; z ² 5A 5B 5A
         ; .byte $FE,$FE,$FE,$FE,$FE,$FE,$FE,$00,$38,$44,$BA,$A2,$BA,$44,$38,$00 ;   © 5C 5D
         ; .byte $38,$44,$82,$82,$44,$28,$EE,$00,$55,$AA,$55,$AA,$55,$AA,$55,$AA ; Ω   5E 5F
-            .byte $00,$00,$00,$00,$00,$00,$00,$00,$10,$10,$10,$10,$10,$00,$10,$00
+    .byte $00,$00,$00,$00,$00,$00,$00,$00,$10,$10,$10,$10,$10,$00,$10,$00
     .byte $28,$28,$00,$00,$00,$00,$00,$00,$00,$50,$F8,$50,$50,$F8,$50,$00
     .byte $20,$78,$A0,$70,$28,$F0,$20,$00,$40,$A4,$48,$10,$20,$48,$94,$08
     .byte $60,$90,$90,$60,$94,$88,$74,$00,$08,$08,$10,$00,$00,$00,$00,$00
@@ -223,7 +223,7 @@
         .byte $01, $60, "CLLD", 0
         .byte $01, $61, "FXLC", 0
         .byte $01, $62, "KRFK", 0
-        .byte $01, $63, "XDDJ", 0
+        .byte $01, $63, "XDDJ", 0 ; break water level
         .byte $01, $64, "LBKG", 0
         .byte $01, $65, "KLFB", 0
         .byte $01, $66, "TTCT", 0
@@ -319,10 +319,9 @@
     .repeat 8 ; 8 rows
         lda (temp)
         sta byte
-        inc temp
+        inc16 temp
 
-        lda #1
-        sta VERA::CTRL  ; data port 1
+        inc VERA::CTRL  ; data port 1
         lda VERA::ADDR+2
         and #$01
         ora #(VERA::INC1)
@@ -399,8 +398,7 @@
         lda col
         sta VERA::DATA0
 
-        lda #1
-        sta VERA::CTRL  ; data port 1
+        inc VERA::CTRL  ; data port 1
         lda VERA::ADDR+2
         and #$01
         ora #(VERA::INC160)
@@ -434,8 +432,7 @@
         lda col
         sta VERA::DATA0
 
-        lda #1
-        sta VERA::CTRL  ; data port 1
+        inc VERA::CTRL  ; data port 1
         sec
         lda VERA::ADDR
         sbc #$03
@@ -447,7 +444,7 @@
         sbc #0
         sta VERA::ADDR+2
 
-        stz VERA::CTRL
+        stz VERA::CTRL ; data port 0
         sec
         lda VERA::ADDR
         sbc #$03

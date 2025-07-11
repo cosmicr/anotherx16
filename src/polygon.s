@@ -71,8 +71,6 @@
             .byte (i * 8) / 10
         .endrepeat
 
-.export scale_lookup
-
 .segment "CODE"
 
 .macro read_polygon_byte
@@ -347,23 +345,37 @@
     sta zoom_temp+1
 
     continue:
-    mulx_addr zoom_result, zoom_temp ; todo: since this is only used once, might as well inline it
+    mulx_addr zoom_result, zoom_temp
     stx zoom_result+1
+    
 
-    ; Division by 64
-    lsr zoom_result+1    
-    ror             
-    lsr zoom_result+1    
-    ror             
-    lsr zoom_result+1    
-    ror             
-    lsr zoom_result+1    
-    ror             
-    lsr zoom_result+1    
-    ror             
-    lsr zoom_result+1    
-    ror             
-    ldx zoom_result+1    
+    ; best: 23 worst: 49 cycles
+    cpx #$40 ; check if higher than $4000 (16384) ; 2 cycles
+    bcs slow_divide ; 2
+
+    ; Fast division by 64 by multiplying by 4 and dropping the low byte
+    asl  ; 2
+    rol zoom_result+1 ; 5
+    asl ; 2
+    rol zoom_result+1 ; 5
+    lda zoom_result+1 ; 3
+    ldx #0 ; 2
+    rts
+
+slow_divide:
+    lsr zoom_result+1     ;6
+    ror             ; 2
+    lsr zoom_result+1    ; 6
+    ror             ; 2
+    lsr zoom_result+1    ; 6
+    ror             ; 2
+    lsr zoom_result+1    ;6
+    ror             ; 2
+    lsr zoom_result+1    ;6
+    ror             ; 2
+    lsr zoom_result+1    ;6
+    ror             ; 2
+    ldx zoom_result+1    ; 3
     rts
 
 no_zoom:

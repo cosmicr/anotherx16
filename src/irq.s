@@ -52,9 +52,8 @@
 .endproc
 
 ; ---------------------------------------------------------------
-; IRQ handler for AFLOW (Low FIFO buffer)
+; IRQ handler
 ; ---------------------------------------------------------------
-; todo: probably need to move this to a separate file at some point
 .proc irq_handler
     pha
     phx
@@ -82,11 +81,6 @@
     sta IRQVec
     lda old_irq+1
     sta IRQVec+1
-
-    ; Make sure AFLOW interrupt is off
-    lda VERA::IRQ_EN
-    and #%11110111       ; Clear bit 3 (AFLOW interrupt enable)
-    sta VERA::IRQ_EN
 
     cli               ; Enable interrupts
 

@@ -464,7 +464,6 @@ jump_table:
 ; CCTRL start, end, state
 ; ---------------------------------------------------------------
 .proc opcode_0C_CCTRL
-stp
     ; Read the start task number 
     read_script_byte
     sta temp+1 ; start task
@@ -542,7 +541,6 @@ stp
 .proc opcode_0F_COPYP
     src = temp
     dst = work+1
-    vscroll = state+engine::vscroll
     jsr read_script_word
     sta src         ; store src for vscroll path
     txa
@@ -563,10 +561,10 @@ stp
     conditional_copy: 
     ; If bit 7 of src is clear, we clear vscroll
     bmi skip_clear ; if bit 7 is set, we don't clear vscroll
-    stz vscroll 
-    bra continue ; temporary - remove later
+    stz engine_vars+249      ; var 249 is vscroll
+    stz engine_vars+256+249
     skip_clear:
-stp
+
     continue:
     ; now do the copy
     and #3 ; remove vscroll bit
@@ -577,12 +575,11 @@ stp
     ; vscroll should only happen if the amount is > -SCREEN_H or < SCREEN_H
     ; normal copy if vscroll is zero
     ldx dst
-    jsr copy_page
-    ; vscroll is number of lines to scroll (y offset)
-    ; if vscroll is negative, copy from src-vscroll to dst
-    ; todo: handle vscroll up
-    ; if vscroll is positive, copy to dst+vscroll from src
-    ; todo: handle vscroll down
+    ldy engine_vars+249 ; vscroll var
+    bne :+
+    jmp copy_page
+    :
+    jsr copy_page_scroll
 
     done:
     rts
@@ -817,8 +814,8 @@ stp
     asl
     asl
     ora volume
-    tay ; volume in low and channel in high nibble
 
+    tay ; volume in low and channel in high nibble
     lda num
     ldx freq
     jsr play_sample
@@ -846,7 +843,6 @@ stp
 
     @load:
     lda num
-    ; todo: if resource is a bitmap, then load and display it instead
     jsr load_resource
 
     rts

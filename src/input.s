@@ -15,6 +15,13 @@
     joy_byte0: .res 1
     joy_byte1: .res 1
 
+.segment "RODATA"
+    dpad_to_keyflags:
+        .byte $00, RIGHT_MASK, LEFT_MASK, LEFT_MASK|RIGHT_MASK
+        .byte DOWN_MASK, DOWN_MASK|RIGHT_MASK, DOWN_MASK|LEFT_MASK, DOWN_MASK|LEFT_MASK|RIGHT_MASK
+        .byte UP_MASK, UP_MASK|RIGHT_MASK, UP_MASK|LEFT_MASK, UP_MASK|LEFT_MASK|RIGHT_MASK
+        .byte UP_MASK|DOWN_MASK, UP_MASK|DOWN_MASK|RIGHT_MASK, UP_MASK|DOWN_MASK|LEFT_MASK, UP_MASK|DOWN_MASK|LEFT_MASK|RIGHT_MASK
+
 .segment "CODE"
 
 ; ---------------------------------------------------------------------------
@@ -38,76 +45,41 @@
 ; Note: joystick_scan is automatically called by the default IRQ handler
 ; ---------------------------------------------------------------------------
 .proc update_joystick
-    ; Get keyboard joystick state (joystick 0)
-    ; No need to call joystick_scan - the IRQ handler does this automatically
+    ; Get joystick state
     lda joy_type
     jsr $FF56 ; JOYSTICK_GET
 
-    ; .A now contains byte 0 (d-pad + face buttons)
-    ; .X now contains byte 1 (shoulder buttons + A/X buttons)
-    ; .Y contains presence flag ($00 = present, $FF = not present)
-    
-    ; Store the joystick data for processing
+    ; .A contains byte 0 (d-pad + face buttons)
+    ; .X contains byte 1 (shoulder buttons + A/X buttons)
     sta joy_byte0
     stx joy_byte1
-    
-    ; Clear our key_flags
-    stz key_flags
-    
-    ; Process directional buttons (bits are 0 when pressed)
-    ; Check RIGHT (bit 0 of byte 0)
+
+    ; Invert joystick bits (0=pressed -> 1=pressed) and mask D-Pad
     lda joy_byte0
-    bit #(1 << SNES_RIGHT_BIT)
-    bne check_left              ; bit is 1 = not pressed
-    lda key_flags
-    ora #RIGHT_MASK
+    eor #$FF
+    and #%00001111 ; Isolate UP, DOWN, LEFT, RIGHT bits
+    tax             ; Use as index into lookup table
+
+    ; Get directional flags from the lookup table
+    lda dpad_to_keyflags,x
     sta key_flags
-    
-    check_left:
-    ; Check LEFT (bit 1 of byte 0)
-    lda joy_byte0
-    bit #(1 << SNES_LEFT_BIT)
-    bne check_down
-    lda key_flags
-    ora #LEFT_MASK
-    sta key_flags
-    
-    check_down:
-    ; Check DOWN (bit 2 of byte 0)
-    lda joy_byte0
-    bit #(1 << SNES_DOWN_BIT)
-    bne check_up
-    lda key_flags
-    ora #DOWN_MASK
-    sta key_flags
-    
-    check_up:
-    ; Check UP (bit 3 of byte 0)
-    lda joy_byte0
-    bit #(1 << SNES_UP_BIT)
-    bne check_action
-    lda key_flags
-    ora #UP_MASK
-    sta key_flags
-    
-    check_action:
-    ; Check action buttons: START (Enter) or A button
-    ; START = bit 4 of byte 0
+
+    ; Check action buttons: START (bit 4) or A button (bit 7)
+    ; Bits are 0 when pressed in original joy_byte0/1
     lda joy_byte0
     bit #(1 << SNES_START_BIT)
-    beq action_pressed          ; bit is 0 = pressed
-    
-    ; A button = bit 7 of byte 1  
+    beq action_pressed
+
     lda joy_byte1
     bit #(1 << SNES_A_BIT)
-    bne done                    ; bit is 1 = not pressed
-    
-    action_pressed:
+    bne done
+
+action_pressed:
     lda key_flags
     ora #ACTION_MASK
     sta key_flags
-    
-    done:
+
+done:
     rts
 .endproc
 
@@ -117,6 +89,11 @@
 .proc update_input
     ; First update joystick state
     jsr update_joystick
+
+    ; TODO: check for keypress
+    ; C: enter code screen
+    ; S: toggle sound
+    ; F: toggle frame limiter
     
     ; *** horizontal movement
     ldx #HERO_POS_LEFT_RIGHT

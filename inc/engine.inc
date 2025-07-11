@@ -35,13 +35,10 @@
     sta engine_vars+256,x
 .endmacro
 
-; todo: consider moving everything to ZP except for vars for speed
 .struct engine
     draw_page       .res 1  ; page_ptr0
     display_page    .res 1  ; page_ptr1
     buffer_page     .res 1  ; page_ptr2
-
-    vscroll         .res 1
 
     next_palette    .res 1
 

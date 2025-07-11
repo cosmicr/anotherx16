@@ -1,5 +1,5 @@
 ; ---------------------------------------------------------------
-; init.s
+; resource.s
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
 
@@ -14,24 +14,33 @@
 .include "resource.inc"
 .include "macros.inc"
 
+.segment "EXTZP" : zeropage
+    res_ptr:               .res 2
+
 .segment "DATA"
     next_bank:              .byte RESOURCE_BANK_START
     next_offset:            .byte 0, 0, 0, 0
-    resource_filename:      .asciiz "data"  ; "bank" for compressed data
+    resource_filename:      .asciiz "data"
                             .res 2
-    dummy_loc:      .res 320
-
-.export next_bank
 
 .segment "BSS"
     resource_table:         .res MAX_RESOURCES * .sizeof(resource)
 
 .segment "RODATA"
-    str_error_invalid_resource_num: .asciiz "invalid resource number"
+    .define MEMLIST_FILENAME "memlist.bin"
+    str_error_invalid_resource_num: .asciiz "unable to load resource"
     str_error_memlist_bin:          .asciiz "error opening memlist.bin"
-    str_memlist_bin:                .asciiz "memlist.bin"
-    str_memlist_bin_size:
-    str_end:
+    str_memlist_bin:                .asciiz MEMLIST_FILENAME
+
+.align 256
+    resource_table_offsets_low:
+    .repeat MAX_RESOURCES, i
+        .byte <(resource_table + i * .sizeof(resource))
+    .endrepeat
+    resource_table_offsets_high:
+    .repeat MAX_RESOURCES, i
+        .byte >(resource_table + i * .sizeof(resource))
+    .endrepeat
 
 .segment "CODE"
 
@@ -39,34 +48,33 @@
 ; Helper macro for reversing endianess
 ; ---------------------------------------------------------------
 .macro reverse_bytes
-        clc
-        adc work+2
-        sta work
-        lda #0
-        adc work+3
-        sta work+1
-        lda (work),y
-        sta temp+3
-        iny
-        lda (work),y
-        sta temp+2
-        iny
-        lda (work),y
-        sta temp+1
-        iny
-        lda (work),y
-        sta temp
-        lda temp+3
-        sta (work),y
-        dey
-        lda temp+2
-        sta (work),y
-        dey
-        lda temp+1
-        sta (work),y
-        dey
-        lda temp
-        sta (work),y
+    lda (res_ptr),y ; y = 0
+    pha
+    iny
+    lda (res_ptr),y ; y = 1
+    pha
+    iny
+    lda (res_ptr),y ; y = 2
+    pha
+    iny
+    lda (res_ptr),y ; y = 3
+    pha
+    
+    dey ; y = 2
+    dey ; y = 1
+    dey ; y = 0
+
+    pla
+    sta (res_ptr),y 
+    iny
+    pla
+    sta (res_ptr),y
+    iny
+    pla
+    sta (res_ptr),y
+    iny
+    pla
+    sta (res_ptr),y
 .endmacro
 
 ; ---------------------------------------------------------------
@@ -74,7 +82,7 @@
 ; ---------------------------------------------------------------
 .proc init_resources
     ; Attempt to open the file
-    lda #(str_memlist_bin_size - str_memlist_bin)
+    lda #.strlen(MEMLIST_FILENAME)
     ldy #>str_memlist_bin
     ldx #<str_memlist_bin
     jsr SETNAM
@@ -90,29 +98,25 @@
 
     ; Read the file into memory
     lda #<resource_table ; low byte of address
-    sta work ; store the low byte of the address in work
+    sta res_ptr ; store the low byte of the address in res_ptr
     lda #>resource_table ; high byte of address
-    sta work+1 ; store the high byte of the address in work+1
+    sta res_ptr+1 ; store the high byte of the address in res_ptr+1
     ldx #0 ; low byte of index
     ldy #0 ; high byte of index
     @read_loop:
-        ; phx
-        ; phy
         jsr ACPTR ; get a byte from the file
-        ; ply
-        ; plx
-        sta (work),y ; store the byte in resource_table
+        sta (res_ptr),y ; store the byte in resource_table
         iny
         cpy #.sizeof(resource)
         bne @read_loop
 
         clc
         lda #.sizeof(resource)
-        adc work
-        sta work
+        adc res_ptr
+        sta res_ptr
         lda #0
-        adc work+1
-        sta work+1
+        adc res_ptr+1
+        sta res_ptr+1
         ldy #0
         inx 
         cpx #MAX_RESOURCES ; check if we've read all resources
@@ -127,44 +131,44 @@
 
     ; reverse the bytes for the big endian values
     lda #<resource_table
-    sta work+2
+    sta res_ptr
     lda #>resource_table
-    sta work+3
+    sta res_ptr+1
     ldx #0
     @reverse_loop:
-        lda #resource::offset
+        ldy #resource::offset
         reverse_bytes
-        lda #resource::compressed
+        ldy #resource::compressed
         reverse_bytes
-        lda #resource::uncompressed
+        ldy #resource::uncompressed
         reverse_bytes
         clc
-        lda work+2
+        lda res_ptr
         adc #.sizeof(resource)
-        sta work+2
+        sta res_ptr
         lda #0
-        adc work+3
-        sta work+3
+        adc res_ptr+1
+        sta res_ptr+1
         inx
         cpx #MAX_RESOURCES
         jne @reverse_loop
 
     ; set the status on each resource to 0
     lda #<resource_table
-    sta work
+    sta res_ptr
     lda #>resource_table
-    sta work+1
+    sta res_ptr+1
     ldx #0
     @status_loop:
         lda #0
-        sta (work)
+        sta (res_ptr)
         clc
-        lda work
+        lda res_ptr
         adc #.sizeof(resource)
-        sta work
+        sta res_ptr
         lda #0
-        adc work+1
-        sta work+1
+        adc res_ptr+1
+        sta res_ptr+1
         inx
         cpx #MAX_RESOURCES
         bne @status_loop
@@ -214,120 +218,112 @@
     sta resource_filename + 5
     stz resource_filename + 6
     pla
-    jra get_offset
+    bra get_offset
     nibble_to_hex:
         cmp #10
         bcc @digit
-        adc #6
+        adc #('a' - 10 - '0' - 1) ; convert to 'a'..'f'
     @digit:
         adc #'0'
         rts
 
-    ; get offset into resource info table and store in work
+    ; get offset into resource info table and store in res_ptr
     get_offset:
 
-    tax ; counter
-    lda #<resource_table
-    sta work
-    lda #>resource_table
-    sta work+1
-    @table_loop: ; todo: use a lookup table 
-        clc
-        lda #.sizeof(resource)
-        adc work
-        sta work
-        lda #0
-        adc work+1
-        sta work+1
-        dex
-        bne @table_loop
+    tax ; resource number to X
+    lda resource_table_offsets_low, x
+    sta res_ptr
+    lda resource_table_offsets_high, x
+    sta res_ptr + 1
+    ; res_ptr now contains the address of the current resource info
 
     ; check if resource is already loaded
     ldy #resource::status
-    lda (work),y
+    lda (res_ptr),y
     jne resource_loaded
 
     ; if the resource is a bitmap, then load it into vera instead
     ldy #resource::rtype
-    lda (work),y
+    lda (res_ptr),y
     cmp #2 ; bitmap type
     jeq load_bitmap
 
     ; save the current bank to the resource ; probably not necessary
     ldy #resource::rank
     lda next_bank
-    sta (work),y
+    sta (res_ptr),y
 
     ; load the file directly from disk
     ; todo: load and unpack from original datafiles
-    ; todo: if we use the disk for loading then we could probably still have music!
     lda next_bank
     sta RAM_BANK
+
     lda #0
     ldx #8
     ldy #2
     jsr SETLFS
-    lda #7
+
+    lda #7 ; filename length
     ldx #<resource_filename
     ldy #>resource_filename
     jsr SETNAM
+
     ; offset is $A000 + next_offset % $2000
     lda next_offset+1
-    and #$1F
-    ora #$A0
+    and #$1F ; mask of low 5 bits
+    ora #$A0 ; add base offset
     sta work+3
     lda next_offset
     sta work+2
+
     ldx work+2
     ldy work+3
     lda #0
     jsr LOAD
+    bcs invalid_resource_error ; error loading file
 
     ; update the resource status
     ldy #resource::status
     lda #1
-    sta (work),y
+    sta (res_ptr),y
     ; update the location of the resource
     ldy #resource::pointer
     lda next_offset
-    sta (work),y
+    sta (res_ptr),y
     iny
     lda next_offset+1
-    sta (work),y
+    sta (res_ptr),y
     iny
     lda next_offset+2
-    sta (work),y
+    sta (res_ptr),y
     iny
     lda next_offset+3
-    sta (work),y
+    sta (res_ptr),y
 
     ; next_offset += resource::uncompressed
     ldy #resource::uncompressed
-    lda (work),y
+    lda (res_ptr),y
     clc
     adc next_offset
     sta next_offset
     iny
-    lda (work),y
+    lda (res_ptr),y
     adc next_offset+1
     sta next_offset+1
     iny
-    lda (work),y
+    lda (res_ptr),y
     adc next_offset+2
     sta next_offset+2
     iny
-    lda (work),y
+    lda (res_ptr),y
     adc next_offset+3
     sta next_offset+3
     lda RAM_BANK
     sta next_bank
 
-    ; note: what if we run out of memory?
-    ; note: 512kb should be enough, but maybe check if we have 512kb or 2mb of memory?
-
     resource_loaded:
-    lda work
-    ldx work + 1
+    lda res_ptr
+    ldx res_ptr + 1
     rts
 
     invalid_resource_error:
@@ -348,7 +344,7 @@
     lda byte
     bit #(1 << check_bit) ; check the bit
     beq :+   ; if not set, skip
-    lda #(1 << set_bit) ; set the lefg bit
+    lda #(1 << set_bit) ; set the left bit
     ora mask
     sta mask
     :

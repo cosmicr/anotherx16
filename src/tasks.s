@@ -26,21 +26,15 @@
 .segment "ZEROPAGE"
     opcode:     .res 1
     current_task:   .res 2
-    script_pointer: .res 3
 
 .segment "DATA"
     pc:         .word 0
 
 .segment "RODATA"
-    resource_offsets:
-    .repeat MAX_RESOURCES, i
-        .word resource_table + (i * .sizeof(resource))
-    .endrepeat
 
 .segment "CODE"
 
 ; Clear Tasks - iterate through tasks and reset values
-.align 128
 .proc clear_tasks
     ldx #0
     clear_loop:
@@ -68,7 +62,6 @@
 .endproc
 
 ; Update task states
-.align 256
 .proc update_tasks
     ldx #0
     update_loop:
@@ -123,7 +116,6 @@
 .endproc
 
 ; Execute each task/channel
-.align 256
 .proc execute_tasks
     ldx #0
     execute_loop:
@@ -206,7 +198,7 @@
 ; Returns: A = first byte read, X = second byte read
 ; Little Endian
 ; ---------------------------------------------------------------
-.align 64
+
 .proc read_script_word
     ; Get first byte
     ldy #resource::pointer
@@ -267,7 +259,6 @@
 ; ---------------------------------------------------------------
 ; Draws a single polygon
 ; ---------------------------------------------------------------
-.align 128
 .proc opcode_draw_poly_background
     lda opcode
     sta polygon_info+polygon_data::offset+1
@@ -318,7 +309,6 @@
 ; Draws a polygon or a group of polygons
 ; Assumes opcode is set before calling
 ; ---------------------------------------------------------------
-.align 256
 .proc opcode_draw_poly_sprite
     ; Get offset
     jsr read_script_word
@@ -340,7 +330,7 @@
         sta polygon_info+polygon_data::center_x
         lda #1
         sta polygon_info+polygon_data::center_x+1
-        jra get_y
+        jmp get_y
 
     x_from_var:
         ; Bit 4 is set, bit 5 is clear (0b01)
@@ -454,11 +444,13 @@
     rts
 .endproc
 
+; ---------------------------------------------------------------
+; Execute the opcode based on the value in 'opcode'
+; ---------------------------------------------------------------
 .proc opcode_execute
     asl ; table is word aligned
     tax
     jmp (jump_table, x)
-    .align 64
     jump_table:
         .word opcode_00_SETI
         .word opcode_01_MOV
