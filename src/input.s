@@ -6,8 +6,11 @@
 .macpack longbranch
 
 .include "cx16.inc"
+.include "cbm_kernal.inc"
 .include "input.inc"
 .include "engine.inc"
+.include "main.inc"
+.include "sample.inc"
 
 .segment "ZEROPAGE"
     joy_type:      .byte 1 ; 0 = keyboard joystick, 1 = gamepad joystick
@@ -91,10 +94,29 @@ done:
     jsr update_joystick
 
     ; TODO: check for keypress
-    ; C: enter code screen
-    ; S: toggle sound
-    ; F: toggle frame limiter
-    
+    ; C: enter code screen $43
+    KEY_C = $43
+    ; S: toggle sound $53
+    KEY_S = $53
+    ; F: toggle frame limiter $46
+    KEY_F = $46
+
+    jsr GETIN
+    cmp #KEY_C
+    bne :+
+    lda #8
+    sta state+engine::next_part
+    rts
+    :
+    cmp #KEY_S
+    bne :+
+    lda sound_enabled
+    eor #$01
+    sta sound_enabled
+    sta audio_ready ; if sound is disabled, clear audio ready flag
+    rts
+    :
+
     ; *** horizontal movement
     ldx #HERO_POS_LEFT_RIGHT
     stz engine_vars,x

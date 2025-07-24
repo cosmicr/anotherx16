@@ -33,6 +33,8 @@
     read:           .res 6
     mtemp:          .res 2
     frame_early:    .res 1
+    sound_enabled:   .res 1 ; 0 = off, 1 = on
+    vsync_enabled:   .res 1 ; 0 = off, 1 = on
 
 .segment "CODE"
 

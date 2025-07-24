@@ -254,13 +254,39 @@ page_3_y160_bank:
 .endproc
 
 ; ---------------------------------------------------------------
-; Clear Screen buffer VRAM using VERA's 32-bit cache feature
+; Clear Screen buffer - this will clear 8 bytes at a time (very fast)
 ; A: colour to clear the screen with
 ; use whatever current page is set in VERA::ADDR
+; about 50,000 cycles
 ; ---------------------------------------------------------------
 .proc clear_page
     tay
     ldx color_lookup_shifted,y
+
+    ; copy the address to the other port
+    lda VERA::ADDR
+    sta vtemp
+    lda VERA::ADDR+1
+    sta vtemp+1
+    lda VERA::ADDR+2
+    ora #VERA::INC4
+    sta VERA::ADDR+2    ; Set address auto-increment to 4 bytes
+    sta vtemp+2
+
+    lda #1
+    sta VERA::CTRL 
+
+    ; add page size /2 to the address
+    clc
+    lda vtemp
+    adc #<(PAGE_SIZE / 2)
+    sta VERA::ADDR
+    lda vtemp+1
+    adc #>(PAGE_SIZE / 2)
+    sta VERA::ADDR+1
+    lda vtemp+2
+    adc #0
+    sta VERA::ADDR+2
 
     ; Enable DCSEL mode 2 to allow cache operations
     set_dcsel 2
@@ -278,16 +304,13 @@ page_3_y160_bank:
     stx FX_CACHE_H
     stx FX_CACHE_U
 
-    ; Set address auto-increment to 4 bytes
-    lda #VERA::INC4
-    tsb VERA::ADDR + 2
-
     ; This will write 8 pixels at a time (32 bits)
-    ldx #>(PAGE_SIZE / 4)   ; High Byte
-    ldy #<(PAGE_SIZE / 4)   ; Low Byte
+    ldx #>(PAGE_SIZE / 8)   ; High Byte
+    ldy #<(PAGE_SIZE / 8)   ; Low Byte
 
     clear_loop:
         stz VERA::DATA0     ; Write the 32-bit cache to VRAM (4 bytes of zeros) 
+        stz VERA::DATA1     ; Write the 32-bit cache to VRAM (4 bytes of zeros)
         dey                 ; Decrement low byte of loop counter
         bne clear_loop      ; Continue loop if low byte is not zero
         dex                 ; Decrement high byte of loop counter
@@ -399,14 +422,13 @@ page_3_y160_bank:
 ; Copy a page to another page (optimized for 256 pixel visible width)
 ; A: source page number
 ; X: destination page number
+; about 136,032 cycles
 ; ---------------------------------------------------------------
 .proc copy_page
     VISIBLE_LOOPS = 32     ; 32 loops * 8 pixels = 256 bytes per row
-    BYTES_TO_SKIP = 32     ; 64 pixels to skip at end of each row
+    BYTES_TO_SKIP = 32     ; 64 pixels to skip at end of each row (non-visible area)
+    NUM_REPEATS = 12 ; must be a factor 192
 
-    ; store destination page for later
-    stx temp_dst_page
-    
     ; set up source
     tay
     lda page_base_lo,y
@@ -416,75 +438,71 @@ page_3_y160_bank:
     lda page_base_bank,y
     ora #VERA::INC1
     sta VERA::ADDR + 2
-    
+
     ; Set up destination
-    lda #1
-    sta VERA::CTRL
-    lda temp_dst_page
-    tay                    ; Move destination page to Y
-    lda page_base_lo,y
+    inc VERA::CTRL ; data port 1
+    lda page_base_lo,x
     sta VERA::ADDR
-    lda page_base_hi,y
+    lda page_base_hi,x
     sta VERA::ADDR + 1
-    lda page_base_bank,y
+    lda page_base_bank,x
     ora #VERA::INC4
     sta VERA::ADDR + 2
     
     ; Set DCSEL to 2 for cache operations and pre-configure FX_CTRL
-    lda #(2<<1)
-    sta VERA::CTRL
-    lda #(1<<5)|(1<<6)     ; Both cache fill and write enable at once
+    lda #(2<<1) | (1) 
+    sta VERA::CTRL ; also data port 1
+    lda #(1<<5)|(1<<6)  ; Cache fill, cache write
     sta FX_CTRL
-    
-    ; Set row counter
-    ldx #SCREEN_HEIGHT     ; Use X to track rows
-    
-row_loop:
-    ; Process one row (256 visible pixels)
-    .repeat VISIBLE_LOOPS
-        ; Fill cache (4 bytes) and write cache (4 bytes) 
-        ; Cache settings already enabled from above
-        lda VERA::DATA0
-        lda VERA::DATA0
-        lda VERA::DATA0
-        lda VERA::DATA0
-        stz VERA::DATA1    ; Write all 4 bytes (mask = 0)
-    .endrepeat
-    
-    ; Skip bytes in source address (DATA0)
-    lda #1
-    trb VERA::CTRL         ; Switch to DATA0
-    
-    clc
-    lda VERA::ADDR
-    adc #BYTES_TO_SKIP     ; Add 64 to low byte
-    sta VERA::ADDR
-    bcc skip_src_hi
-    inc VERA::ADDR+1       ; Handle carry
-skip_src_hi:
-    
-    ; Skip bytes in destination address (DATA1)
-    lda #1
-    tsb VERA::CTRL         ; Switch to DATA1
-    
-    clc
-    lda VERA::ADDR
-    adc #BYTES_TO_SKIP     ; Add 64 to low byte
-    sta VERA::ADDR
-    bcc skip_dst_hi
-    inc VERA::ADDR+1       ; Handle carry
-skip_dst_hi:
 
-    ; Next row
-    dex
-    jne row_loop
-    
+    ; Set row counter
+    ldx #SCREEN_HEIGHT/NUM_REPEATS     ; repeat 192/12 number of times
+
+    row_loop:
+        .repeat NUM_REPEATS ; about 700 cycles per row
+        ; Process one row (256 visible pixels)
+        .repeat VISIBLE_LOOPS ; 20 * 32 = 640 cycles
+            ; Fill cache (4 bytes) and write cache (4 bytes) 
+            ; Cache settings already enabled from above
+            lda VERA::DATA0
+            lda VERA::DATA0
+            lda VERA::DATA0
+            lda VERA::DATA0
+            stz VERA::DATA1    ; Write all 4 bytes (mask = 0) 20 cycles
+        .endrepeat
+
+        ; Skip bytes in source address (DATA0)
+        dec VERA::CTRL         ; Switch to DATA0
+
+        clc
+        lda VERA::ADDR
+        adc #BYTES_TO_SKIP     ; Add 64 to low byte
+        sta VERA::ADDR
+        bcc :+
+        inc VERA::ADDR+1       ; Handle carry
+        :
+        
+        ; ; Skip bytes in destination address (DATA1)
+        inc VERA::CTRL         ; Switch to DATA1
+        
+        clc
+        lda VERA::ADDR
+        adc #BYTES_TO_SKIP     ; Add 64 to low byte
+        sta VERA::ADDR
+        bcc :+
+        inc VERA::ADDR+1       ; Handle carry
+        :
+
+        .endrepeat
+        ; Next row
+        dex
+        jne row_loop
+
     ; Cleanup
     stz FX_CTRL
     stz VERA::CTRL
+
     rts
-    
-temp_dst_page: .byte 0
 .endproc
 
 ; ---------------------------------------------------------------
@@ -495,76 +513,73 @@ temp_dst_page: .byte 0
     VISIBLE_LOOPS = 32     ; 32 loops * 8 pixels = 256 bytes per row
     BYTES_TO_SKIP = 32     ; 64 pixels to skip at end of each row
     ; store destination page for later
-    stx vtemp
+    sta vtemp
+    stx vtemp+1
 
-    ; store source page index
-    pha
-
-    ; add vscroll
-    ldx engine_vars+249
+    ; get vscroll
+    ldy engine_vars+249 ; load y with offset
+    lda engine_vars+256+249 ; is it negative?
     bmi subtract
 
-; positive vscroll - add to destination address
+    ; positive vscroll - add to destination address
     ; Set up source address (Port 0)
-    pla ; restore source page index
-    tay
-    lda page_base_lo,y
+    stz VERA::CTRL
+    ldx vtemp ; source page index
+    lda page_base_lo,x
     sta VERA::ADDR
-    lda page_base_hi,y
+    lda page_base_hi,x
     sta VERA::ADDR + 1
-    lda page_base_bank,y
+    lda page_base_bank,x
     ora #VERA::INC1
     sta VERA::ADDR + 2
 
     ; Set up destination address (Port 1) with scroll offset
-    lda #1
-    sta VERA::CTRL
-    lda vtemp
-    tay                    ; Move destination page to Y
+    inc VERA::CTRL
+    ldx vtemp+1 ; destination page index
     clc
-    lda page_base_lo,y
-    adc y160_lookup_lo,x
+    lda page_base_lo,x
+    adc y160_lookup_lo,y ; add y offset to low byte
     sta VERA::ADDR
-    lda page_base_hi,y
-    adc y160_lookup_hi,x
+    lda page_base_hi,x
+    adc y160_lookup_hi,y
     sta VERA::ADDR+1
-    lda page_base_bank,y
+    lda page_base_bank,x
     adc #0
     ora #VERA::INC4
     sta VERA::ADDR+2
     bra continue
 
-; negative vscroll -  add to source address
-subtract:
+    ; negative vscroll -  add to source address
+    subtract:
     ; Set up destination address (Port 1) first
     lda #1
     sta VERA::CTRL
-    lda vtemp
-    tay
-    lda page_base_lo,y
+    ldx vtemp+1 ; destination page index
+    lda page_base_lo,x
     sta VERA::ADDR
-    lda page_base_hi,y
+    lda page_base_hi,x
     sta VERA::ADDR + 1
-    lda page_base_bank,y
+    lda page_base_bank,x
     ora #VERA::INC4
     sta VERA::ADDR + 2
     
     ; Set up source address (Port 0) with scroll offset
     stz VERA::CTRL ; back to port 0
-    txa
-    eor #$FF
+
+    tya ; vscroll is in Y
+    eor #$FF ; invert Y for negative scroll
     inc
-    tax
-    pla ; restore source page index
     tay
+    
+    ldx vtemp ; source page index
     clc
-    lda page_base_lo,y
-    adc y160_lookup_lo,x
+    lda page_base_lo,x
+    adc y160_lookup_lo,y
     sta VERA::ADDR
-    lda page_base_hi,y
-    adc y160_lookup_hi,x
+    lda page_base_hi,x
+    adc y160_lookup_hi,y
     sta VERA::ADDR+1
-    lda page_base_bank,y
+    lda page_base_bank,x
     adc #0
     ora #VERA::INC1
     sta VERA::ADDR+2
@@ -577,51 +592,51 @@ subtract:
     sta FX_CTRL
     
     ; Set row counter
-    stx vtemp
+    sty vtemp
     sec
     lda #SCREEN_HEIGHT
     sbc vtemp
     tax ; use X to track rows
-    
-row_loop:
-    ; Process one row (256 visible pixels)
-    .repeat VISIBLE_LOOPS
-        ; Fill cache (4 bytes) and write cache (4 bytes) 
-        ; Cache settings already enabled from above
-        lda VERA::DATA0
-        lda VERA::DATA0
-        lda VERA::DATA0
-        lda VERA::DATA0
-        stz VERA::DATA1    ; Write all 4 bytes (mask = 0)
-    .endrepeat
-    
-    ; Skip bytes in source address (DATA0)
-    lda #1
-    trb VERA::CTRL         ; Switch to DATA0
-    
-    clc
-    lda VERA::ADDR
-    adc #BYTES_TO_SKIP     ; Add 64 to low byte
-    sta VERA::ADDR
-    bcc skip_src_hi
-    inc VERA::ADDR+1       ; Handle carry
-skip_src_hi:
-    
-    ; Skip bytes in destination address (DATA1)
-    lda #1
-    tsb VERA::CTRL         ; Switch to DATA1
-    
-    clc
-    lda VERA::ADDR
-    adc #BYTES_TO_SKIP     ; Add 64 to low byte
-    sta VERA::ADDR
-    bcc skip_dst_hi
-    inc VERA::ADDR+1       ; Handle carry
-skip_dst_hi:
 
-    ; Next row
-    dex
-    jne row_loop
+    row_loop:
+        ; Process one row (256 visible pixels)
+        .repeat VISIBLE_LOOPS
+            ; Fill cache (4 bytes) and write cache (4 bytes) 
+            ; Cache settings already enabled from above
+            lda VERA::DATA0
+            lda VERA::DATA0
+            lda VERA::DATA0
+            lda VERA::DATA0
+            stz VERA::DATA1    ; Write all 4 bytes (mask = 0)
+        .endrepeat
+        
+        ; Skip bytes in source address (DATA0)
+        lda #1
+        trb VERA::CTRL         ; Switch to DATA0
+        
+        clc
+        lda VERA::ADDR
+        adc #BYTES_TO_SKIP     ; Add 64 to low byte
+        sta VERA::ADDR
+        bcc skip_src_hi
+        inc VERA::ADDR+1       ; Handle carry
+        skip_src_hi:
+        
+        ; Skip bytes in destination address (DATA1)
+        lda #1
+        tsb VERA::CTRL         ; Switch to DATA1
+        
+        clc
+        lda VERA::ADDR
+        adc #BYTES_TO_SKIP     ; Add 64 to low byte
+        sta VERA::ADDR
+        bcc skip_dst_hi
+        inc VERA::ADDR+1       ; Handle carry
+        skip_dst_hi:
+
+        ; Next row
+        dex
+        jne row_loop
     
     ; Cleanup
     stz FX_CTRL
@@ -634,17 +649,6 @@ skip_dst_hi:
 ; uses data saved in line_info+line_data struct
 ; ---------------------------------------------------------------
 .proc draw_line
-    ; *** if y > 199 then return
-    lda line_info+line_data::y1+1
-    beq check_y_low
-    rts
-    check_y_low:
-    lda line_info+line_data::y1
-    cmp #SCREEN_HEIGHT
-    bcc y_ok
-    rts
-    y_ok:
-
     ; *** if x2 < 0 then return
     lda line_info+line_data::x2+1
     bpl x2_not_neg
@@ -675,20 +679,13 @@ skip_dst_hi:
     ; macro
     setup_line 
 
-    lda polygon_info+polygon_data::color
-    ; *** if color < $10 then draw solid line
-    cmp #$10
-    jcc draw_line_solid
-
-    ; *** if color == $10 then draw transparent line
-    jeq draw_line_trans
-
-    ; *** if color == $11 then copy from page 0 to current page
-    cmp #$11
-    jeq draw_line_copy
+    ldx draw_mode
+    jmp (mode_lookup, x)
 
     end:
     rts
+    mode_lookup:
+        .word draw_line_solid, draw_line_trans, draw_line_copy
 .endproc
 
 .proc draw_line_copy
@@ -712,7 +709,7 @@ skip_dst_hi:
     sta VERA::ADDR+1
     lda #0
     adc VERA::ADDR+2
-    and #$FE
+    and #$FE ; clear low bit?
     ora #VERA::INC1
     sta VERA::ADDR+2    ; y * 160 + x1/2
    
@@ -834,15 +831,10 @@ end_line:
     set_dcsel 2
     lda #%01000000   ; set cache write enable
     sta FX_CTRL
-    ; set_dcsel 6      ; set cache mode
 
     ; set 4 byte increment
-    ; lda VERA::ADDR+2 ; 4 cycles
-    ; and #$01        ; mask out the low bit - 2 cycles
-    ; ora #VERA::INC4 ; set port 0 auto increment to 4 bytes - 2 cycles
-    ; sta VERA::ADDR+2 ; 4 cycles
     lda #VERA::INC4 ; 2 cycles
-    tsb VERA::ADDR+2 ; set port 0 auto increment to 4 bytes - 2 cycles
+    tsb VERA::ADDR+2 
 
     ; set leading mask
     lda line_info+line_data::x1
@@ -894,77 +886,39 @@ end_line:
     beq trailing    ; If x2 == x1 + 1, skip to trailing
     dec             ; We need one less than the difference
     beq trailing    ; If result is zero after dec, skip to trailing
+
+
+    lsr
+    bcc no_4_byte_chunk
+    stz VERA::DATA0 ; write 4 bytes
+
+    no_4_byte_chunk:
+    lsr
+    bcc no_8_byte_chunk
+    stz VERA::DATA0 ; write 4 bytes
+    stz VERA::DATA0 ; write 4 bytes
     
-    ; Now we have a valid loop count
-    tax             ; Transfer to X for our loop counter
-    
-    middle_loop:
-        stz VERA::DATA0  ; Write all zeros for middle bytes
+    no_8_byte_chunk:
+    tax
+    cpx #0
+    beq trailing ; If no middle bytes, skip to trailing
+
+    middle_loop_16:
+        stz VERA::DATA0 ; write 4 bytes
+        stz VERA::DATA0 ; write 4 bytes
+        stz VERA::DATA0 ; write 4 bytes
+        stz VERA::DATA0 ; write 4 bytes
         dex
-        bne middle_loop
-    
+        bne middle_loop_16 ; Continue if more bytes to write
+
     trailing:
-    ; draw trailing mask
     lda trailing_mask
-    sta VERA::DATA0
+    sta VERA::DATA0 ; write trailing mask
 
     end_line:
     ; reset fx control
     set_dcsel 2
     stz FX_CTRL
     stz VERA::CTRL
-    rts
-.endproc
-
-; ---------------------------------------------------------------
-; Draw a pixel using the line_info struct
-; ---------------------------------------------------------------
-.proc draw_pixel
-    ; set control port 0
-    stz VERA::CTRL
-
-    ; set the address start
-    ldx state+engine::draw_page
-    set_addr_page
-
-    ; set vera address to y*160
-    ldy line_info+line_data::y1
-    lda y160_lookup_lo,y
-    clc
-    adc VERA::ADDR
-    sta VERA::ADDR
-    lda y160_lookup_hi,y
-    adc VERA::ADDR+1
-    sta VERA::ADDR+1
-    lda #0
-    adc VERA::ADDR+2
-    sta VERA::ADDR+2  
-    ; now add x1/2 to the address
-    lsr line_info+line_data::x1+1
-    ror line_info+line_data::x1
-    add16_addr VERA::ADDR, line_info+line_data::x1
-    lda #0
-    adc VERA::ADDR+2
-    sta VERA::ADDR+2
-
-    lda line_info+line_data::x1
-    and #$01
-    beq @even
-    lda VERA::DATA0
-    and #$F0
-    ora line_info+line_data::color
-    sta VERA::DATA0
-    bra @done
-
-    @even:
-    ldx line_info+line_data::color
-    lda color_lookup_hi,x
-    sta vtemp
-    lda VERA::DATA0
-    and #$0F
-    ora vtemp
-    sta VERA::DATA0
-
-@done:
     rts
 .endproc

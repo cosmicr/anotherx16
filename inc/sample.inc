@@ -19,5 +19,4 @@ NUM_CHANNELS = 4
     phase_step  .res 2 ; 8.8 fixed point
     volume      .res 1
     buffer_pos  .res 1 ; current position in the sample buffer
-    buffer_size .res 1 ; size of the sample buffer
 .endstruct 

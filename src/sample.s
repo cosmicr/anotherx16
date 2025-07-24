@@ -17,9 +17,11 @@
 .include "bank.inc"
 
 .segment "ZEROPAGE"
-    stemp:              .res 2 ; Temporary storage 
+    stemp:              .res 4 ; Temporary storage 
     audio_ready:        .res 1 ; Flag to indicate if audio is ready
-    final_sample:       .res 2 ; Final sample value to write to PCM FIFO
+    final_sample:       .res 1 ; Final sample value to write to PCM FIFO
+    freq:               .res 1 ; Frequency for playback
+    sample_resource:    .res 2 ; Resource pointer for sample data
 
 .segment "DATA"
     channels:
@@ -51,7 +53,7 @@
 .proc init_audio
     ; Initialize VERA audio
     stz VERA::PCM::DATA
-
+    
     lda #%00000000 ; set PCM mode to 8-bit mono and volume to zero
     sta VERA::PCM::CTRL
 
@@ -64,8 +66,6 @@
         stz channels,x
         dex
         bpl clear_loop
-
-    inc audio_ready ; Set audio ready flag
 
     rts
 .endproc
@@ -181,9 +181,6 @@
 ; Y: low byte: Volume (0-15) high byte: Channel number (0-3)
 ; ---------------------------------------------------------------
 .proc play_sample 
-    freq = stemp
-    sample_resource = stemp+1
-
     stx freq ; Save frequency in temp
 
     ; Get resource info
@@ -229,6 +226,9 @@
 ; Update audio - called from IRQ
 ; ---------------------------------------------------------------
 .proc update_audio
+    lda sound_enabled
+    beq done ; if sound is disabled, skip audio update
+
     ; Skip if audio not ready
     lda audio_ready
     beq done
@@ -247,20 +247,26 @@
 
     has_audio:
     ; set volume
-    lda #%00001111
+    lda #%00001100
     sta VERA::PCM::CTRL
 
     ; Keep filling until FIFO is full or no channels playing
     fill_until_full:
         ; Read FIFO status
-        lda VERA::PCM::CTRL
-        bmi done ; bit 7 is set if FIFO is full, so we can stop
+        ; lda VERA::PCM::CTRL
+        ; bmi done ; bit 7 is set if FIFO is full, so we can stop
+
+        lda VERA::IRQ_FLAGS
+        bit #VERA::AUDIO_LOW ; check if FIFO is low
+        beq done ; if FIFO is not low, stop filling
 
         ; FIFO has space - fill it
         jsr fill_fifo
 
         bra fill_until_full ; still playing, keep filling
+    
     done:
+
     rts
 .endproc
 
@@ -278,9 +284,11 @@
     lda channel+CHANNEL::phase_step+1
     adc channel+CHANNEL::current+1
     sta channel+CHANNEL::current+1
-    lda #0
-    adc channel+CHANNEL::current+2
-    sta channel+CHANNEL::current+2
+    bcc no_carry
+    inc channel+CHANNEL::current+2
+    bne no_carry
+    inc channel+CHANNEL::current+3
+    no_carry:
 
     ; calculate how many integer samples we advanced
     lda channel+CHANNEL::current+1
@@ -298,7 +306,10 @@
 
     no_advance:
     ; Check if we reached the end of the sample
-    ; even though addresses are 24-bit, the aren't any samples that are larger than 65535 bytes
+    lda channel+CHANNEL::current+3
+    cmp channel+CHANNEL::end+2
+    bcc done ; if current sample < end, ok
+    bne stop ; test low byte if high byte is equal
     lda channel+CHANNEL::current+2
     cmp channel+CHANNEL::end+1
     bcc done ; if current sample < end
@@ -362,32 +373,45 @@
     ; Apply volume - keep it very simple for now
     ldy channel+CHANNEL::volume
     beq zero_volume             ; Volume 0 = silence
-    
+
+    cmp #$80
+    ror ; lower volume by half
+
+    ; Scale volume level
     cpy #8
-    bcs apply_sample            ; Volume 8-15: full volume
-    ; Volumes 1-7 get reduced by half
-    cmp #$80
-    ror
+    bcs vol_high
     cpy #4
-    bcs apply_sample            ; Volume 4-7: quarter volume
-    cmp #$80
-    ror
+    bcs vol_mid
     cpy #2
-    bcs apply_sample            ; Volume 2-3: eighth volume
+    bcs vol_low
+    ; Volume 1: eighth volume
     cmp #$80
     ror
-    cpy #1
-    bcs apply_sample            ; Volume 1: sixteenth volume
-    ; Volume 0: silence, do nothing
-    bra zero_volume
-    
+    cmp #$80
+    ror
+    cmp #$80
+    ror
+    bra apply_sample
+    vol_low:
+    ; Volume 2-3: quarter volume
+    cmp #$80
+    ror
+    cmp #$80
+    ror
+    bra apply_sample
+    vol_mid:
+    ; Volume 4-8: half volume
+    cmp #$80
+    ror
+    bra apply_sample
+    vol_high:
+    ; Volume 9-15: full volume
+        
     apply_sample:
-    ; Add to final mix (signed arithmetic)
     clc
     adc final_sample
     sta final_sample
-    bra done
-    
+
     zero_volume:
     ; Add nothing (silence)
     
@@ -412,6 +436,6 @@
     
     lda final_sample
     sta VERA::PCM::DATA
-    
+
     rts
 .endproc

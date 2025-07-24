@@ -38,4 +38,5 @@ ACTION_MASK  = %10000000     ; bit 7
 
 ; Reserve bits 4-6 for future use (S key, V key, etc.)
 
+
 .global init_input, update_input

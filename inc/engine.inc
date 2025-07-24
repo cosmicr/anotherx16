@@ -8,6 +8,7 @@
 .global task_state, task_next_state, task_pc, task_next_pc, task_stack, task_stack_pos
 .global set_var
 .globalzp state
+.globalzp update_required
 
 .macro get_page
 .scope

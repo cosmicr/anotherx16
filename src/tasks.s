@@ -1,5 +1,5 @@
 ; ---------------------------------------------------------------
-; engine.s
+; tasks.s
 ; AnotherX16 - Commander X16 port of Another World
 ; ---------------------------------------------------------------
 
@@ -126,21 +126,16 @@
         asl     ; pc is word aligned
         tay
 
-        lda task_pc,y
-        sta pc
-        lda task_pc+1,y
-        sta pc+1                ; pc = task pc
-
         lda #$FF
-        cmp pc+1
+        cmp task_pc+1,y
         bne execute
-        cmp pc
+        cmp task_pc,y
         beq next_task ; if pc is $FFFF then skip task
         
         execute:
-            lda pc
+            lda task_pc,y
             sta state+engine::bytecode_pos
-            lda pc+1
+            lda task_pc+1,y
             sta state+engine::bytecode_pos+1    ; bytecode_pos = pc
 
             stz task_stack_pos,x ; reset task stack_pos
@@ -276,9 +271,9 @@
     ; x_val += y_val-199 if y_val > 199
     ; note: this must by 199, because it is hardcoded in the engine
     cmp #199
-    bcc @skip
+    bcc @skip 
     sec
-    sbc #199        ; y_val - 199
+    sbc #199        ; y_val is always greater than 199 here 
     clc
     adc polygon_info+polygon_data::center_x
     sta polygon_info+polygon_data::center_x
@@ -301,7 +296,7 @@
     lda #$FF
     sta polygon_info+polygon_data::color
     jmp parse_polygon
-
+    
     rts
 .endproc
 
@@ -314,7 +309,9 @@
     jsr read_script_word
     sta polygon_info+polygon_data::offset+1
     stx polygon_info+polygon_data::offset
-    asl16_addr polygon_info+polygon_data::offset, 1  ; offset *= 2
+
+    asl polygon_info+polygon_data::offset
+    rol polygon_info+polygon_data::offset+1 ; multiply by 2
 
     ; Get X-coordinate
     lda opcode          ; Load opcode into A once

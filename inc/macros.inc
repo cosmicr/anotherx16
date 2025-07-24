@@ -97,10 +97,12 @@ end:
 
 .macro dec16 addr
 .scope
+  dec    addr
   lda    addr
-  bne :+
+  cmp    #$FF
+  bne    :+
   dec    addr+1
-  : dec    addr
+:
 .endscope
 .endmacro
 

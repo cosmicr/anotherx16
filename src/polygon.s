@@ -35,6 +35,8 @@
     left_error:             .res 2
     right_error:            .res 2
 
+    draw_mode:            .res 1          ; mode for drawing polygons (0: solid, 1: transparent, 2: copy)
+
 .segment "EXTZP" : zeropage
     polygon_info:   .tag polygon_data   ; for storing polygon data
 
@@ -66,9 +68,18 @@
     cy:             .res 2              ; y value for child polygon
 
 .segment "RODATA"
+    ; 80% scale lookup table (256/320 = 0.8)
     scale_lookup:
         .repeat 256, i
-            .byte (i * 8) / 10
+            .byte (i * 80) / 100
+        .endrepeat
+    scale_lookup_hi_lo:
+        .repeat 256, i
+            .byte ((i * 256 * 80) / 100) & $FF
+        .endrepeat
+    scale_lookup_hi_hi:
+        .repeat 256, i
+            .byte ((i * 256 * 80) / 100) >> 8
         .endrepeat
 
 .segment "CODE"
@@ -78,6 +89,15 @@
     ldx poly_ptr+1
     ldy poly_ptr+2
     jsr read_byte
+    inc24 poly_ptr
+.endmacro
+
+.macro read_polygon_word
+    lda poly_ptr
+    ldx poly_ptr+1
+    ldy poly_ptr+2
+    jsr read_word
+    inc24 poly_ptr
     inc24 poly_ptr
 .endmacro
 
@@ -166,59 +186,86 @@
     ldy #0
     vertex_loop:
         phy
-        read_polygon_byte
-        tax
-        lda scale_lookup,x
+        read_polygon_word
+        stx work
+        tax ; x vert 
+        lda scale_lookup,x ; scale the x value
         jsr multiply_zoom
         ply
-        sta polygons_x,y ; x value
+        sta polygons_x,y ; store x value
         txa
-        sta polygons_x+1,y
+        sta polygons_x+1,y ; store x high byte
 
         phy
-        read_polygon_byte
+        lda work ; y vert
         jsr multiply_zoom
         ply
-        sta polygons_y,y ; y value
+        sta polygons_y,y ; store y value
         txa
-        sta polygons_y+1,y
+        sta polygons_y+1,y ; store y high byte
 
         iny
         iny
         cpy counter
-        jne vertex_loop
+        bne vertex_loop
 
-
+    ; scale the center coordinates to 256 width
     lda polygon_info+polygon_data::center_x+1
     bmi @handle_negative                     ; If high byte is $FF, handle negative value
-    beq @normal_range                        ; If high byte is 0, handle 0-255 range
+    beq @normal_range                        ; If high byte is 0, no need to handle high byte
 
-    ; Handle extended range (>255)
-    ldx polygon_info+polygon_data::center_x  ; Get low byte
-    lda scale_lookup,x                       ; Scale it using lookup table
+    ; Handle extended range (high byte is not zero)
+    ldx polygon_info+polygon_data::center_x  ; Get low byte 
+    lda scale_lookup,x                       ; Scale it using lookup table 
+    sta polygon_info+polygon_data::center_x  ; Store result
+    ldx polygon_info+polygon_data::center_x+1 ; Get high byte 
+    lda scale_lookup_hi_lo,x                       ; Scale it using lookup table 
     clc
-    adc #204                                 ; Add 204 (255 * 0.8)
-    sta polygon_info+polygon_data::center_x  ; Store result
-    lda #0
-    adc #0                                   ; Capture any carry
-    sta polygon_info+polygon_data::center_x+1
+    adc polygon_info+polygon_data::center_x 
+    sta polygon_info+polygon_data::center_x
+    lda scale_lookup_hi_hi,x                       ; Scale high byte using lookup table 
+    adc #0 
+    sta polygon_info+polygon_data::center_x+1 
     bra @done
 
-@normal_range:
+    @normal_range:
     ldx polygon_info+polygon_data::center_x  ; Get low byte
     lda scale_lookup,x                       ; Scale it using lookup table
     sta polygon_info+polygon_data::center_x  ; Store result
-    stz polygon_info+polygon_data::center_x+1 ; Clear high byte
     bra @done
 
-@handle_negative:
-    lda polygon_info+polygon_data::center_x  ; Get low byte
-    eor #$FF                                 ; Convert to positive value
-    tax
+    @handle_negative:
+    ; invert the value
+    sec
+    lda polygon_info+polygon_data::center_x
+    eor #$FF
+    adc #0
+    sta polygon_info+polygon_data::center_x
+    lda polygon_info+polygon_data::center_x+1
+    eor #$FF
+    adc #0
+    sta polygon_info+polygon_data::center_x+1
+    ; do the scale
+    ldx polygon_info+polygon_data::center_x  ; Get low byte 
     lda scale_lookup,x                       ; Scale it using lookup table
-    eor #$FF                                 ; Convert back to negative
     sta polygon_info+polygon_data::center_x  ; Store result
-    lda #$FF                                 ; Keep high byte as $FF
+    ldx polygon_info+polygon_data::center_x+1 ; Get high byte
+    lda scale_lookup_hi_lo,x                       ; Scale it using lookup table
+    clc
+    adc polygon_info+polygon_data::center_x 
+    sta polygon_info+polygon_data::center_x
+    lda scale_lookup_hi_hi,x                       ; Scale high byte using lookup table
+    adc #0 
+    sta polygon_info+polygon_data::center_x+1 
+    ; invert the result
+    sec
+    lda polygon_info+polygon_data::center_x
+    eor #$FF
+    adc #0
+    sta polygon_info+polygon_data::center_x
+    lda polygon_info+polygon_data::center_x+1
+    eor #$FF
+    adc #0
     sta polygon_info+polygon_data::center_x+1
     
 @done:
@@ -252,17 +299,22 @@
     ldx #0
     child_loop:
         phx
-        read_polygon_byte
+        ; read_polygon_byte
+        ; sta off+1
+        ; read_polygon_byte
+        ; sta off             ; off = read_word child_offset
+        read_polygon_word
         sta off+1
-        read_polygon_byte
-        sta off             ; off = read_word child_offset
+        stx off
 
-        read_polygon_byte
+        read_polygon_word
+
+        stx temp
         jsr multiply_zoom
         sta cx
         stx cx+1
 
-        read_polygon_byte
+        lda temp
         jsr multiply_zoom
         sta cy
         stx cy+1
@@ -348,7 +400,6 @@
     mulx_addr zoom_result, zoom_temp
     stx zoom_result+1
     
-
     ; best: 23 worst: 49 cycles
     cpx #$40 ; check if higher than $4000 (16384) ; 2 cycles
     bcs slow_divide ; 2
@@ -445,6 +496,27 @@ no_zoom:
     stz FX_CTRL
     set_dcsel 0
 
+    ; *** Determine drawing function once
+    lda polygon_info+polygon_data::color
+    cmp #$10
+    bcc use_solid
+    jeq use_trans
+    cmp #$11
+    jeq use_copy
+    ; fallback to solid
+    use_solid:
+        lda #0
+        sta draw_mode
+        jmp start_segments
+    use_trans:
+        lda #2  
+        sta draw_mode
+        jmp start_segments
+    use_copy:
+        lda #4
+        sta draw_mode
+    start_segments:
+
     ; *** Initialize vertex tracking
     ; *** THE VERTICES ARE CLOCKWISE, SO LEFT IS THE LAST VERTEX
     ; index points to a value X or Y, not a vertex
@@ -459,6 +531,7 @@ no_zoom:
     sta count            ; Total vertices to process
 
     ; *** loop through segments ***
+    ; TODO: we're using bresenham here, but would a fixed point calculated step be faster? like a 16.8 step?
     next_segment:
         ; Early exit if no vertices
         lda count
@@ -582,6 +655,7 @@ no_zoom:
         lda left_edge+1
         adc origin+POINT::x_val+1
         sta left_edge+1
+
         clc
         lda right_edge
         adc origin+POINT::x_val            ; Add X offset for right edge
@@ -595,7 +669,22 @@ no_zoom:
             lda y_top           ; Check if reached end of segment
             cmp y_bottom
             jeq segment_done
-       
+
+            ; *** if y > 199 then return (early exit)
+            lda line_info+line_data::y1+1
+            beq check_y_low
+            jmp next_scanline
+            check_y_low:
+            lda line_info+line_data::y1
+            cmp #SCREEN_HEIGHT
+            bcc y_ok
+            jmp next_scanline
+            y_ok:
+
+            ; *** If right_edge < 0, entire line is off left side of screen
+            lda right_edge+1
+            jmi next_scanline        ; If high byte negative, right_edge < 0, skip line
+
             ; Draw the horizontal line
             lda left_edge
             sta line_info+line_data::x1
@@ -605,7 +694,7 @@ no_zoom:
             sta line_info+line_data::x2
             lda right_edge+1
             sta line_info+line_data::x2+1
-            jsr draw_line
+            jsr draw_line ; *** draw the line
             
             ; Update left edge position
             clc
@@ -675,6 +764,7 @@ no_zoom:
             jmp check_right_advance
 
         no_right_advance:
+        next_scanline:
             inc16 line_info+line_data::y1  ; Next scanline
             inc y_top
             jmp scanline_loop

@@ -42,7 +42,7 @@ rts ; not in use
     jsr clear_text_screen
 
     ; convert bycode pos to hexidecimal text string
-    dec16 state+engine::bytecode_pos
+    ; dec16 state+engine::bytecode_pos
     lda state+engine::bytecode_pos+1
     jsr hex2text
     lda state+engine::bytecode_pos

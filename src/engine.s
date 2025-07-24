@@ -18,7 +18,7 @@
 .include "polygon.inc"
 .include "sample.inc"
 
-STARTING_PART = 1
+STARTING_PART = 0
 
 .segment "EXTZP" : zeropage
     state:   .res .sizeof(engine)
@@ -117,6 +117,12 @@ STARTING_PART = 1
     stz state+engine::part
     lda #STARTING_PART
     sta state+engine::next_part
+
+    stz audio_ready
+
+    lda #1
+    sta sound_enabled ; sound is enabled by default
+    sta vsync_enabled ; vsync is enabled by default
 
     rts
 .endproc
@@ -226,24 +232,26 @@ STARTING_PART = 1
     set_next_palette:
         lda state+engine::next_palette
         cmp #$ff
-        beq @skip_palette ; if next_palette is $FF then skip setting palette
+        beq skip_palette ; if next_palette is $FF then skip setting palette
         jsr set_palette
         lda #$ff
         sta state+engine::next_palette
+        bra done
 
-    @skip_palette:
+    skip_palette:
         lda state+engine::display_page
         jsr set_vera_page   ; set the VERA page to the display_page
 
         ; 60Hz wait
         lda frame_early ; if interrupt has not been triggered then wait
-        beq @no_wait
-        wai
+        beq no_wait
         wai ; target 30fps
+        wai
         
-    @no_wait:
+    no_wait:
         lda #2
         sta frame_early
 
+    done:
     rts
 .endproc

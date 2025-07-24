@@ -23,6 +23,7 @@
 
 .segment "ZEROPAGE"
     end:        .res 1
+    addr:       .res 2
 
 .segment "RODATA"
     ; lookup table for stack base address - 128 bytes
@@ -41,7 +42,7 @@
     read_script_byte
     sta temp ; 3 cycles
 
-    jsr read_script_word
+    jsr read_script_word ; A: high byte, X: low byte
 
     ldy temp ; 3 cycles
     sta engine_vars+256,y ; swap endianess ; 5 cycles
@@ -90,21 +91,19 @@
 ; Add immediate value to a variable
 ; ---------------------------------------------------------------
 .proc opcode_03_ADDC
-    read_script_byte
-    sta temp ; var number
-
     jsr read_script_word
-    sta temp+1 ; value high byte
-
-    ldy temp ; var number to Y
-    txa ; low byte of value to A
-    clc
-    adc engine_vars,y
-    sta engine_vars,y
-    lda temp+1
-    adc engine_vars+256,y
-    sta engine_vars+256,y
+    sta temp ; var number
+    stx temp+1 ; value high byte
+    read_script_byte
     
+    ldx temp ; var number to X
+    clc ; A has the low byte of value
+    adc engine_vars,x
+    sta engine_vars,x
+    lda temp+1 ; high byte of value
+    adc engine_vars+256,x
+    sta engine_vars+256,x
+
     rts
 .endproc
 
@@ -241,23 +240,24 @@
 ; Decrement the variable and jump if not zero
 ; ---------------------------------------------------------------
 .proc opcode_09_DJNZ
-    addr = temp
     ; Read the variable num
     read_script_byte
-    sta temp+2
+    sta temp
 
     ; Read the address to jump to
-    jsr read_script_word
+    jsr read_script_word ; A: high byte, X: low byte
     sta addr+1
     stx addr
 
-    ; Decrement the variable
-    ldx temp+2
-    lda engine_vars,x ; if not zero, decrement low byte only
-    bne :+
-    dec engine_vars+256,x
-    : 
-    dec engine_vars,x
+    ; Decrement the variable (16bit signed)
+    ldx temp
+    sec 
+    lda engine_vars,x
+    sbc #1
+    sta engine_vars,x
+    lda engine_vars+256,x 
+    sbc #0
+    sta engine_vars+256,x
 
     ; Check if the result is zero
     lda engine_vars,x
@@ -281,9 +281,9 @@
 ; ---------------------------------------------------------------
 .proc opcode_0A_CJMP
     cond_type = temp
-    right_val = work+1
-    left_val = work+3
-    jump_addr = work+5
+    right_val = temp+1
+    left_val = temp+3
+    jump_addr = temp+5
 
     ; Read the condition type from the script
     jsr read_script_word
@@ -309,7 +309,7 @@
     stz left_val+1
     bra read_jump_addr
 
-read_left_var:
+    read_left_var:
     ; Read a variable index and load its value for the left operand
     read_script_byte
     tax
@@ -319,13 +319,13 @@ read_left_var:
     sta left_val+1
     bra read_jump_addr
 
-read_left_word:
+    read_left_word:
     ; Read a signed 16-bit immediate value for the left operand
     jsr read_script_word
     sta left_val+1
     stx left_val
 
-read_jump_addr:
+    read_jump_addr:
     ; Read the jump address from the script
     jsr read_script_word
     sta jump_addr+1
@@ -338,7 +338,7 @@ read_jump_addr:
     tax
     jmp (jump_table, x)
 
-jump_table:
+    jump_table:
     .word @eq
     .word @ne
     .word @gt
@@ -346,7 +346,7 @@ jump_table:
     .word @lt
     .word @le
 
-@eq:
+    @eq:
     ; Jump if right_val == left_val
     lda right_val
     cmp left_val
@@ -354,9 +354,9 @@ jump_table:
     lda right_val+1
     cmp left_val+1
     jne @end
-    jra @do_jump
+    jmp @do_jump
 
-@ne:
+    @ne:
     ; Jump if right_val != left_val
     lda right_val
     cmp left_val
@@ -364,28 +364,28 @@ jump_table:
     lda right_val+1
     cmp left_val+1
     jne @do_jump
-    jra @end
+    jmp @end
 
-@gt:
+    @gt:
     ; Jump if right_val > left_val (signed comparison)
     lda right_val+1
-    eor left_val+1 ; 0 xor 0 = 0; 1 xor 1 = 0;
-    bmi @gt_diff_signs
+    eor left_val+1 
+    bmi @gt_diff_signs ; result is negative if signs differ
     lda right_val+1
     cmp left_val+1
-    bcc @end
-    bne @do_jump
-    lda right_val
+    bcc @end ; right is less than left, so no jump
+    bne @do_jump ; right is greater than left, so jump
+    lda right_val ; high bytes are equal, compare low bytes
     cmp left_val
     bcc @end
-    beq @end
+    beq @end ; less than or equal, so no jump
     bra @do_jump
-@gt_diff_signs:
+    @gt_diff_signs:
     lda left_val+1
-    bmi @do_jump
-    bra @end
+    bmi @do_jump ; left is negative which means right is greater
+    bra @end ; left is positive, so right cannot be greater
 
-@ge:
+    @ge:
     ; Jump if right_val >= left_val (signed comparison)
     lda right_val+1
     eor left_val+1
@@ -398,12 +398,12 @@ jump_table:
     cmp left_val
     bcc @end
     bra @do_jump
-@ge_diff_signs:
-    lda left_val+1
-    bmi @do_jump
+    @ge_diff_signs:
+    lda left_val+1 ; values are not equal if we got here
+    bmi @do_jump ; left is negative which means right is greater
     bra @end
 
-@lt:
+    @lt:
     ; Jump if right_val < left_val (signed comparison)
     lda right_val+1
     eor left_val+1
@@ -416,37 +416,37 @@ jump_table:
     cmp left_val
     bcs @end
     bra @do_jump
-@lt_diff_signs:
+    @lt_diff_signs:
     lda right_val+1
-    bmi @do_jump
+    bmi @do_jump ; right is negative which means left is greater
     bra @end
 
-@le:
+    @le:
     ; Jump if right_val <= left_val (signed comparison)
     lda right_val+1
     eor left_val+1
     bmi @le_diff_signs
     lda right_val+1
     cmp left_val+1
-    bcc @do_jump
+    bcc @do_jump ; right is less than left, so jump
     bne @end
     lda right_val
     cmp left_val
     bcc @do_jump
     beq @do_jump
     bra @end
-@le_diff_signs:
-    lda right_val+1
-    bmi @do_jump
+    @le_diff_signs:
+    lda right_val+1 ; values are not equal if we got here
+    bmi @do_jump ; right is negative which means it's less than left
     bra @end
 
-@do_jump:
+    @do_jump:
     lda jump_addr
     sta state+engine::bytecode_pos
     lda jump_addr+1
     sta state+engine::bytecode_pos+1
 
-@end:
+    @end:
     rts
 .endproc
 
@@ -524,12 +524,19 @@ jump_table:
 ; FILLP num, color
 ; ---------------------------------------------------------------
 .proc opcode_0E_FILLP
-    jsr read_script_word
-    phx ; second byte is color
+    jsr read_script_word ; first byte A is page number, second byte X is color
+
     get_page
-    tax
-    set_addr_page
-    pla
+    tay
+
+    lda page_base_lo,y
+    sta VERA::ADDR
+    lda page_base_hi,y
+    sta VERA::ADDR + 1
+    lda page_base_bank,y
+    sta VERA::ADDR + 2
+
+    txa
     jsr clear_page
 
     rts
@@ -541,45 +548,46 @@ jump_table:
 .proc opcode_0F_COPYP
     src = temp
     dst = work+1
+
+    ; get the source and destination addresses
     jsr read_script_word
     sta src         ; store src for vscroll path
     txa
     get_page
     sta dst         ; store dst for comparison
-    
-    ; Quick check for direct page copy
+
+    ; check for direct page copy
     lda src
-    cmp #$FE ; if src is $FE or $FF, we can do a direct page copy
+    cmp #$FE ; if src is $FE or $FF then it's a direct page copy
     bcc conditional_copy
     
-    ; Direct page copy
+    ; Direct page copy - does this even ever happen?
     get_page 
     ldx dst
-    jsr copy_page
-    rts 
+    jmp copy_page
+    rts ; dead code
 
     conditional_copy: 
-    ; If bit 7 of src is clear, we clear vscroll
-    bmi skip_clear ; if bit 7 is set, we don't clear vscroll
-    stz engine_vars+249      ; var 249 is vscroll
-    stz engine_vars+256+249
-    skip_clear:
+        ; If bit 7 of src is clear, we clear vscroll
+        bmi skip_clear ; if bit 7 is set, we don't clear vscroll
+        stz engine_vars+249      ; var 249 is vscroll
+        stz engine_vars+249+256  ; high byte of vscroll
+        skip_clear:
 
-    continue:
-    ; now do the copy
-    and #3 ; remove vscroll bit
-    get_page 
-    sta src
-    cmp dst
-    beq done
-    ; vscroll should only happen if the amount is > -SCREEN_H or < SCREEN_H
-    ; normal copy if vscroll is zero
-    ldx dst
-    ldy engine_vars+249 ; vscroll var
-    bne :+
-    jmp copy_page
-    :
-    jsr copy_page_scroll
+        ; now do the copy
+        and #3 ; remove vscroll bit
+        get_page 
+        sta src
+        cmp dst
+        beq done ; no need to copy if src and dst are the same
+        ; vscroll should only happen if the amount is > -SCREEN_H or < SCREEN_H
+        ; normal copy if vscroll is zero
+        ldx dst
+        ldy engine_vars+249 ; vscroll var
+        bne scroll_not_zero
+        jmp copy_page
+        scroll_not_zero:
+        jmp copy_page_scroll
 
     done:
     rts
@@ -592,7 +600,9 @@ jump_table:
     stz engine_vars+$f7
     stz engine_vars+256+$f7
     read_script_byte
-    jsr update_display
+
+    jmp update_display
+
     rts
 .endproc
 
@@ -603,8 +613,7 @@ jump_table:
     lda #$FF
     sta state+engine::bytecode_pos
     sta state+engine::bytecode_pos+1
-    lda #1
-    sta state+engine::task_paused
+    inc state+engine::task_paused
     rts
 .endproc
 
@@ -700,15 +709,15 @@ jump_table:
     read_script_byte
     pha ; var num dst
     jsr read_script_word
-    sta work+1 ; val hi
-    stx work ; val lo
+    sta temp+1 ; val hi
+    stx temp ; val lo
     
     ply
     lda engine_vars,y
-    and work
+    and temp
     sta engine_vars,y
     lda engine_vars+256,y
-    and work+1
+    and temp+1
     sta engine_vars+256,y
 
     rts
@@ -721,15 +730,15 @@ jump_table:
     read_script_byte
     pha
     jsr read_script_word
-    sta work+1 ; val hi
-    stx work ; val lo
+    sta temp+1 ; val hi
+    stx temp ; val lo
     
     ply
     lda engine_vars,y
-    ora work
+    ora temp
     sta engine_vars,y
     lda engine_vars+256,y
-    ora work+1
+    ora temp+1
     sta engine_vars+256,y
 
     rts
@@ -740,24 +749,26 @@ jump_table:
 ; ---------------------------------------------------------------
 .proc opcode_16_SHL
     read_script_byte
-    pha
+    sta temp 
     jsr read_script_word
-    sta work+1 ; val hi (gets ignored)
-    stx work ; val lo
+    txa ; val lo (hi is ignored)
 
-    lda work
+    cmp #$0F ; limit shift count to 15
+    bcc :+
+    stp
+    :
     and #$0F ; no shifting by more than 15
     tay ; shift count
-    beq @end
+    beq end
 
-    plx
-    @shift_loop:
+    ldx temp ; var number
+    shift_loop:
         asl engine_vars,x
         rol engine_vars+256,x
         dey
-        bne @shift_loop
+        bne shift_loop
 
-    @end:
+    end:
     rts
 .endproc
 
@@ -805,6 +816,7 @@ jump_table:
     jsr read_script_word
     sta freq
     stx volume
+    dec volume
     lsr volume
     lsr volume ; I think volume is a 6 bit value, so we shift it down to 4 bits
     
@@ -817,6 +829,10 @@ jump_table:
 
     tay ; volume in low and channel in high nibble
     lda num
+    ; cmp #$3e
+    ; bne :+
+    ; stp
+    ; :
     ldx freq
     jsr play_sample
 
@@ -829,20 +845,17 @@ jump_table:
 .proc opcode_19_LOAD
     num = temp
     jsr read_script_word
-    sta num+1
-    stx num
 
     ; if (num>16000) state+engine::next_part = num-16000
-    lda num+1
     cmp #$3e
     bcc @load
-    lda num
+    txa
     and #$0F
     sta state+engine::next_part
     rts
 
     @load:
-    lda num
+    txa
     jsr load_resource
 
     rts
