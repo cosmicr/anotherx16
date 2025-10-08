@@ -69,17 +69,18 @@
 
 .segment "RODATA"
     ; 80% scale lookup table (256/320 = 0.8)
+    SCALE_FACTOR = (SCREEN_WIDTH * 100) / 320
     scale_lookup:
         .repeat 256, i
-            .byte (i * 80) / 100
+            .byte (i * SCALE_FACTOR) / 100
         .endrepeat
     scale_lookup_hi_lo:
         .repeat 256, i
-            .byte ((i * 256 * 80) / 100) & $FF
+            .byte ((i * 256 * SCALE_FACTOR) / 100) & $FF
         .endrepeat
     scale_lookup_hi_hi:
         .repeat 256, i
-            .byte ((i * 256 * 80) / 100) >> 8
+            .byte ((i * 256 * SCALE_FACTOR) / 100) >> 8
         .endrepeat
 
 .segment "CODE"

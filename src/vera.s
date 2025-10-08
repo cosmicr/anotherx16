@@ -54,18 +54,16 @@
     copy_counter:       .res 1
 
 .segment "RODATA"
-.align 256
     y160_lookup_lo:
     .repeat SCREEN_HEIGHT, i
         .byte (i * 160) & $FF
     .endrepeat
-.align 256
+
     y160_lookup_hi:
     .repeat SCREEN_HEIGHT, i
         .byte (i * 160) >> 8
     .endrepeat
 
-.align 256
     page_base_lo:
         .byte <(PAGE_SIZE * 0)
         .byte <(PAGE_SIZE * 1)
@@ -85,7 +83,6 @@
         .byte ((PAGE_SIZE * 3) >> 16)
 
 ; Page 0 lookup tables
-.align 256
 page_0_y160_lo:
     .repeat SCREEN_HEIGHT, i
         .byte ((i * 160) + (PAGE_SIZE * 0)) & $FF
@@ -100,7 +97,6 @@ page_0_y160_bank:
     .endrepeat
 
 ; Page 1 lookup tables
-.align 256
 page_1_y160_lo:
     .repeat SCREEN_HEIGHT, i
         .byte ((i * 160) + (PAGE_SIZE * 1)) & $FF
@@ -115,7 +111,6 @@ page_1_y160_bank:
     .endrepeat
 
 ; Page 2 lookup tables
-.align 256
 page_2_y160_lo:
     .repeat SCREEN_HEIGHT, i
         .byte ((i * 160) + (PAGE_SIZE * 2)) & $FF
@@ -130,7 +125,6 @@ page_2_y160_bank:
     .endrepeat
 
 ; Page 3 lookup tables
-.align 256
 page_3_y160_lo:
     .repeat SCREEN_HEIGHT, i
         .byte ((i * 160) + (PAGE_SIZE * 3)) & $FF
@@ -144,7 +138,6 @@ page_3_y160_bank:
         .byte ((i * 160) + (PAGE_SIZE * 3)) >> 16
     .endrepeat
         
-.align 256
     color_lookup_hi:
         .byte $00, $10, $20, $30, $40, $50, $60, $70, $80, $90, $A0, $B0, $C0, $D0, $E0, $F0
 
@@ -171,14 +164,17 @@ page_3_y160_bank:
         .byte %01000000 ; $40
         .byte %00000000 ; $00
 
+y_scale_table:
+    .repeat 256, i
+        .byte (i * 96) / 100
+    .endrepeat
+
 .segment "CODE"
 
 ; ---------------------------------------------------------------
 ; Initialise the VERA
 ; ---------------------------------------------------------------
 .proc init_vera
-    jsr clear_text_screen ; clear text screen
-
     ; Disable all VERA layers
     stz VERA::DISP::VIDEO
 
@@ -326,22 +322,6 @@ page_3_y160_bank:
 .endproc 
 
 ; ---------------------------------------------------------------
-; Set lower case mode and clear text screen
-; ---------------------------------------------------------------
-.proc clear_text_screen
-    lda #$01
-    sta CHARCOLOR ; set background to black (0) and text to white (1)
-
-    lda #147
-    jsr CHROUT  ; use the kernal clear screen function lol
-
-    lda #14 ; lowercase mode
-    jsr CHROUT
-
-    rts
-.endproc 
-
-; ---------------------------------------------------------------
 ; Set palette
 ; A: palette number
 ; ---------------------------------------------------------------
@@ -425,8 +405,8 @@ page_3_y160_bank:
 ; about 136,032 cycles
 ; ---------------------------------------------------------------
 .proc copy_page
-    VISIBLE_LOOPS = 32     ; 32 loops * 8 pixels = 256 bytes per row
-    BYTES_TO_SKIP = 32     ; 64 pixels to skip at end of each row (non-visible area)
+    VISIBLE_LOOPS = 32     ; (SCREEN_WIDTH / 8) = 32 loops * 8 pixels = 256 bytes per row
+    BYTES_TO_SKIP = 32     ; (320 - SCREEN_WIDTH) / 2 = 64 pixels to skip at end of each row (non-visible area)
     NUM_REPEATS = 12 ; must be a factor 192
 
     ; set up source
@@ -512,16 +492,16 @@ page_3_y160_bank:
 .proc copy_page_scroll
     VISIBLE_LOOPS = 32     ; 32 loops * 8 pixels = 256 bytes per row
     BYTES_TO_SKIP = 32     ; 64 pixels to skip at end of each row
-    ; store destination page for later
-    sta vtemp
-    stx vtemp+1
+    ; store page numbers
+    sta vtemp ; source page index
+    stx vtemp+1 ; destination page index
 
     ; get vscroll
     ldy engine_vars+249 ; load y with offset
     lda engine_vars+256+249 ; is it negative?
     bmi subtract
 
-    ; positive vscroll - add to destination address
+    ; *** positive vscroll - add to destination address
     ; Set up source address (Port 0)
     stz VERA::CTRL
     ldx vtemp ; source page index
@@ -533,7 +513,11 @@ page_3_y160_bank:
     ora #VERA::INC1
     sta VERA::ADDR + 2
 
-    ; Set up destination address (Port 1) with scroll offset
+    ; scale scroll amount
+    lda y_scale_table,y
+    tay ; store vscroll in Y
+
+    ; Set up destination address (Port 1)
     inc VERA::CTRL
     ldx vtemp+1 ; destination page index
     clc
@@ -549,9 +533,9 @@ page_3_y160_bank:
     sta VERA::ADDR+2
     bra continue
 
-    ; negative vscroll -  add to source address
+    ; *** negative vscroll -  add to source address
     subtract:
-    ; Set up destination address (Port 1) first
+    ; Set up destination address (Port 1) 
     lda #1
     sta VERA::CTRL
     ldx vtemp+1 ; destination page index
@@ -570,6 +554,9 @@ page_3_y160_bank:
     eor #$FF ; invert Y for negative scroll
     inc
     tay
+    ; scale scroll amount
+    lda y_scale_table,y
+    tay ; store vscroll in Y
     
     ldx vtemp ; source page index
     clc
@@ -591,12 +578,45 @@ page_3_y160_bank:
     lda #(1<<5)|(1<<6)     ; Both cache fill and write enable at once
     sta FX_CTRL
     
-    ; Set row counter
-    sty vtemp
+    ; ; Set row counter
+    ; sty vtemp
+    ; sec
+    ; lda #SCREEN_HEIGHT
+    ; sbc vtemp
+    ; tax ; use X to track rows
+
+    ; Calculate rows to copy, clipping to valid range
+    ldy engine_vars+249         ; get original vscroll (low byte)
+    lda engine_vars+256+249     ; check sign
+    bmi negative_rows
+    
+    ; Positive vscroll
+    cpy #SCREEN_HEIGHT
+    bcs no_copy                 ; if vscroll >= 192, copy 0 rows
+    sec
+    lda #SCREEN_HEIGHT
+    sbc engine_vars+249         ; 192 - vscroll
+    tax
+    bra row_loop
+    
+negative_rows:
+    ; For negative, use absolute value but clip to screen height
+    tya                         ; low byte of negative value
+    eor #$FF
+    inc                         ; convert to positive
+    cmp #SCREEN_HEIGHT
+    bcc :+
+    lda #SCREEN_HEIGHT-1        ; clip to max usable rows
+    :
+    sta vtemp                   ; store clipped absolute value
     sec
     lda #SCREEN_HEIGHT
     sbc vtemp
-    tax ; use X to track rows
+    tax
+    bra row_loop
+
+no_copy:
+    jmp done
 
     row_loop:
         ; Process one row (256 visible pixels)
@@ -616,7 +636,7 @@ page_3_y160_bank:
         
         clc
         lda VERA::ADDR
-        adc #BYTES_TO_SKIP     ; Add 64 to low byte
+        adc #BYTES_TO_SKIP     ; Add 64 pixels to low byte
         sta VERA::ADDR
         bcc skip_src_hi
         inc VERA::ADDR+1       ; Handle carry
@@ -628,7 +648,7 @@ page_3_y160_bank:
         
         clc
         lda VERA::ADDR
-        adc #BYTES_TO_SKIP     ; Add 64 to low byte
+        adc #BYTES_TO_SKIP     ; Add 64 pixels to low byte
         sta VERA::ADDR
         bcc skip_dst_hi
         inc VERA::ADDR+1       ; Handle carry
@@ -639,6 +659,7 @@ page_3_y160_bank:
         jne row_loop
     
     ; Cleanup
+    done:
     stz FX_CTRL
     stz VERA::CTRL
     rts

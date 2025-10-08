@@ -219,14 +219,14 @@
         .byte $01, $43, "    LOADING...", 0
         .byte $01, $44, "              ERROR", 0
         .byte $01, $5E, "LDKD", 0
-        .byte $01, $5F, "HTDC", 0
+        .byte $01, $5F, "HTDC", 0 ; jail
         .byte $01, $60, "CLLD", 0
         .byte $01, $61, "FXLC", 0
         .byte $01, $62, "KRFK", 0
         .byte $01, $63, "XDDJ", 0 ; break water level
-        .byte $01, $64, "LBKG", 0
-        .byte $01, $65, "KLFB", 0
-        .byte $01, $66, "TTCT", 0
+        .byte $01, $64, "LBKG", 0 ; recharge gun, bridge
+        .byte $01, $65, "KLFB", 0 ; bridge left
+        .byte $01, $66, "TTCT", 0 
         .byte $01, $67, "DDRX", 0
         .byte $01, $68, "TBHK", 0
         .byte $01, $69, "BRTD", 0
@@ -239,8 +239,8 @@
         .byte $01, $70, "JCGB", 0
         .byte $01, $71, "HHFL", 0
         .byte $01, $72, "TFBB", 0
-        .byte $01, $73, "TXHF", 0
-        .byte $01, $74, "JHJL", 0
+        .byte $01, $73, "TXHF", 0 ; 
+        .byte $01, $74, "JHJL", 0 ; dead level
         .byte $01, $81, " BY", 0
         .byte $01, $82, "ERIC CHAHI", 0
         .byte $01, $83, "         MUSIC AND SOUND EFFECTS", 0

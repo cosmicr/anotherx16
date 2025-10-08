@@ -13,7 +13,7 @@
 .include "sample.inc"
 
 .segment "ZEROPAGE"
-    joy_type:      .byte 1 ; 0 = keyboard joystick, 1 = gamepad joystick
+    joy_type:      .res 1 ; 0 = keyboard joystick, 1 = gamepad joystick
     key_flags:     .res 1          ; bit‑field (pressed = 1)
     joy_byte0: .res 1
     joy_byte1: .res 1
@@ -31,8 +31,10 @@
 ; Setup Input
 ; ---------------------------------------------------------------------------
 .proc init_input
-    lda joy_type
+    lda #1
+    sta joy_type
     jsr $FF56 ; JOYSTICK_GET
+
     cpy #$00 ; if y is $00, joystick 1 is present
     beq joystick_present
     stz joy_type ; use keyboard joystick
@@ -73,8 +75,8 @@
     bit #(1 << SNES_START_BIT)
     beq action_pressed
 
-    lda joy_byte1
-    bit #(1 << SNES_A_BIT)
+    ;lda joy_byte1
+    bit #(1 << SNES_B_BIT)
     bne done
 
 action_pressed:
@@ -93,7 +95,6 @@ done:
     ; First update joystick state
     jsr update_joystick
 
-    ; TODO: check for keypress
     ; C: enter code screen $43
     KEY_C = $43
     ; S: toggle sound $53

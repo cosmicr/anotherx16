@@ -28,7 +28,7 @@
     current_task:   .res 2
 
 .segment "DATA"
-    pc:         .word 0
+    pc:         .word 0 ;  do we even need this?
 
 .segment "RODATA"
 
@@ -125,6 +125,8 @@
         txa
         asl     ; pc is word aligned
         tay
+
+        ; should pc be set to task_pc here?
 
         lda #$FF
         cmp task_pc+1,y

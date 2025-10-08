@@ -37,7 +37,7 @@
 
 .segment "RODATA"
     FREQ = 9600 ; Playback frequency in Hz (target: 22050)
-.align 256
+
     pcm_freq_table: 
     .word ($0CFF << 8) / FREQ, ($0DC3 << 8) / FREQ, ($0E91 << 8) / FREQ, ($0F6F << 8) / FREQ, ($1056 << 8) / FREQ, ($114E << 8) / FREQ, ($1259 << 8) / FREQ, ($136C << 8) / FREQ
     .word ($149F << 8) / FREQ, ($15D9 << 8) / FREQ, ($1726 << 8) / FREQ, ($1888 << 8) / FREQ, ($19FD << 8) / FREQ, ($1B86 << 8) / FREQ, ($1D21 << 8) / FREQ, ($1EDE << 8) / FREQ

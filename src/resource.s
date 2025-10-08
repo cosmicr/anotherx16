@@ -32,7 +32,6 @@
     str_error_memlist_bin:          .asciiz "error opening memlist.bin"
     str_memlist_bin:                .asciiz MEMLIST_FILENAME
 
-.align 256
     resource_table_offsets_low:
     .repeat MAX_RESOURCES, i
         .byte <(resource_table + i * .sizeof(resource))
@@ -182,6 +181,7 @@
         lda #1
         jsr CLOSE ; close the file, if it was open
         jsr CINT
+        wai
         ldx #0
         @error_loop:
             lda str_error_memlist_bin,x
@@ -190,6 +190,9 @@
             inx
             bne @error_loop
         @error_end:
+        pla
+        pla ; pull the return address off the stack
+        jmp exit
     rts
 .endproc
 
@@ -254,7 +257,6 @@
     sta (res_ptr),y
 
     ; load the file directly from disk
-    ; todo: load and unpack from original datafiles
     lda next_bank
     sta RAM_BANK
 
@@ -327,8 +329,9 @@
     rts
 
     invalid_resource_error:
-        ldx #0
         jsr CINT
+        ldx #0
+        wai
         @error_loop:
             lda str_error_invalid_resource_num,x
             beq @error_end
@@ -336,7 +339,9 @@
             inx
             bne @error_loop
         @error_end:
-
+        pla
+        pla ; pull the return address off the stack
+        jmp exit
     rts
 .endproc
 

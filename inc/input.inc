@@ -24,8 +24,8 @@ SNES_Y_BIT     = 6           ; bit 6 (A key)
 SNES_B_BIT     = 7           ; bit 7 (Z key, Left Alt)
 
 ; ------ SNES controller bit layout (byte 1 in .X) -------------------------
-SNES_A_BIT     = 7           ; bit 7 (X key, Left Ctrl)
-SNES_X_BIT     = 6           ; bit 6 (S key)
+SNES_A_BIT     = 7           ; bit 7 (X key, Left Ctrl) (B on Xbox 360)
+SNES_X_BIT     = 6           ; bit 6 (S key) 
 SNES_L_BIT     = 5           ; bit 5 (D key)
 SNES_R_BIT     = 4           ; bit 4 (C key)
 

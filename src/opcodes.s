@@ -537,9 +537,7 @@
     sta VERA::ADDR + 2
 
     txa
-    jsr clear_page
-
-    rts
+    jmp clear_page
 .endproc
 
 ; ---------------------------------------------------------------
@@ -548,46 +546,41 @@
 .proc opcode_0F_COPYP
     src = temp
     dst = work+1
-
-    ; get the source and destination addresses
+    
     jsr read_script_word
-    sta src         ; store src for vscroll path
+    sta src         
     txa
     get_page
-    sta dst         ; store dst for comparison
-
-    ; check for direct page copy
-    lda src
-    cmp #$FE ; if src is $FE or $FF then it's a direct page copy
-    bcc conditional_copy
+    sta dst         
     
-    ; Direct page copy - does this even ever happen?
-    get_page 
+    lda src
+    cmp #$FE 
+    bcs direct_copy    ; $FE or $FF = direct copy
+    
+    ; Conditional copy with vscroll
+    bmi skip_vscroll_clear  ; bit 7 set = keep vscroll
+    stz engine_vars+249     ; clear vscroll
+    stz engine_vars+249+256
+    
+    skip_vscroll_clear:
+    and #3              ; mask to page 0-3
+    get_page
+    sta src
+    cmp dst
+    beq done            ; same page, skip copy
+    
+    ldx dst
+    ldy engine_vars+249 ; vscroll
+    beq normal_copy
+    jmp copy_page_scroll
+    
+    normal_copy:
+    jmp copy_page
+    
+    direct_copy:
+    get_page            ; convert $FE/$FF to actual page
     ldx dst
     jmp copy_page
-    rts ; dead code
-
-    conditional_copy: 
-        ; If bit 7 of src is clear, we clear vscroll
-        bmi skip_clear ; if bit 7 is set, we don't clear vscroll
-        stz engine_vars+249      ; var 249 is vscroll
-        stz engine_vars+249+256  ; high byte of vscroll
-        skip_clear:
-
-        ; now do the copy
-        and #3 ; remove vscroll bit
-        get_page 
-        sta src
-        cmp dst
-        beq done ; no need to copy if src and dst are the same
-        ; vscroll should only happen if the amount is > -SCREEN_H or < SCREEN_H
-        ; normal copy if vscroll is zero
-        ldx dst
-        ldy engine_vars+249 ; vscroll var
-        bne scroll_not_zero
-        jmp copy_page
-        scroll_not_zero:
-        jmp copy_page_scroll
 
     done:
     rts
@@ -602,8 +595,6 @@
     read_script_byte
 
     jmp update_display
-
-    rts
 .endproc
 
 ; ---------------------------------------------------------------

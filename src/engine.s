@@ -24,15 +24,14 @@ STARTING_PART = 0
     state:   .res .sizeof(engine)
 
 .segment "BSS"
-.align 256
-    task_state:         .res 1 * MAX_TASKS ; 64 bytes
-    task_next_state:    .res 1 * MAX_TASKS ; 64 bytes
-    task_pc:            .res 2 * MAX_TASKS ; 128 bytes
-    task_next_pc:       .res 2 * MAX_TASKS ; 128 bytes
+    task_state:         .res 1 * MAX_TASKS  ; 64 bytes
+    task_next_state:    .res 1 * MAX_TASKS  ; 64 bytes
+    task_pc:            .res 2 * MAX_TASKS  ; 128 bytes
+    task_next_pc:       .res 2 * MAX_TASKS  ; 128 bytes
+    task_stack_pos:     .res 1 * MAX_TASKS  ; 64 bytes
+    
     task_stack:         .res 32 * MAX_TASKS ; reserves 32 * 64 = 2kb (such a lot of space for a stack)
-    task_stack_pos:     .res 1 * MAX_TASKS ; 64 bytes
-.align 256
-    engine_vars:  .res 512 ; 256 * 2
+    engine_vars:        .res 512            ; 256 * 2
 
 .segment "RODATA"
     part_resources:
@@ -226,7 +225,7 @@ STARTING_PART = 0
     bra set_next_palette
     
     @get_page:
-        get_page
+        ;get_page
         sta state+engine::display_page
 
     set_next_palette:
@@ -236,7 +235,7 @@ STARTING_PART = 0
         jsr set_palette
         lda #$ff
         sta state+engine::next_palette
-        bra done
+        ;bra done
 
     skip_palette:
         lda state+engine::display_page

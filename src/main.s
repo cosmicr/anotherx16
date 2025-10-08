@@ -19,6 +19,7 @@
 .include "polygon.inc"
 .include "sample.inc"
 .include "input.inc"
+.include "unpack.inc"
 
 .segment "STARTUP"
 
@@ -42,13 +43,13 @@
 ; Main program
 ; ---------------------------------------------------------------
     ; Unpack all the game data and save to disk
-    ; TODO: *** jsr unpack_data
+    jsr unpacker_start
+    ; Load game resources
+    jsr init_resources
     ; Set video modes and clear screen
     jsr init_vera
     ; Setup keyboard and audio
     jsr init_irq 
-    ; Load game resources
-    jsr init_resources
     ; Initialize engine state
     jsr init_engine
     ; Initialize the Audio
@@ -62,12 +63,13 @@
     @loop:
         jsr run_tasks
         bra @loop
-    
+
+.export exit
 exit:
     jsr remove_irq
-    jsr RESTOR
-    jsr CINT
-    rts
+    jmp $FF47 ; basic warm start
+
 ; ---------------------------------------------------------------
 ; End of main program
 ; ----------------------------------------------------------------
+vscroll_amount: .byte 0         ; track vscroll separately since we modify engine_vars+249
