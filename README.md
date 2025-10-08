@@ -105,9 +105,11 @@ ca65 --cpu 65c02 -t cx16 -I inc -g src\sample.s -o bin\obj\sample.o
 ca65 --cpu 65c02 -t cx16 -I inc -g src\tasks.s -o bin\obj\tasks.o
 ca65 --cpu 65c02 -t cx16 -I inc -g src\text.s -o bin\obj\text.o
 ca65 --cpu 65c02 -t cx16 -I inc -g src\vera.s -o bin\obj\vera.o
+ca65 --cpu 65c02 -t cx16 -I inc -g src\unpacker.s -o bin\obj\unpacker.o
+ca65 --cpu 65c02 -t cx16 -I inc -g src\unpack.s -o bin\obj\unpack.o
 
 rem link object files
-ld65 -C cx16-asm.cfg -o bin\another.prg bin\obj\main.o bin\obj\bank.o bin\obj\engine.o bin\obj\input.o bin\obj\irq.o bin\obj\opcodes.o bin\obj\polygon.o bin\obj\resource.o bin\obj\sample.o bin\obj\tasks.o bin\obj\text.o bin\obj\vera.o cx16.lib
+ld65 -C cx16-asm.cfg -o bin\another.prg bin\obj\main.o bin\obj\bank.o bin\obj\engine.o bin\obj\input.o bin\obj\irq.o bin\obj\opcodes.o bin\obj\polygon.o bin\obj\resource.o bin\obj\sample.o bin\obj\tasks.o bin\obj\text.o bin\obj\vera.o bin\obj\unpacker.o bin\obj\unpack.o cx16.lib
 ```
 
 ### Linux / MacOS
@@ -131,12 +133,14 @@ ca65 --cpu 65c02 -t cx16 -I inc -g src/sample.s   -o bin/obj/sample.o
 ca65 --cpu 65c02 -t cx16 -I inc -g src/tasks.s    -o bin/obj/tasks.o
 ca65 --cpu 65c02 -t cx16 -I inc -g src/text.s     -o bin/obj/text.o
 ca65 --cpu 65c02 -t cx16 -I inc -g src/vera.s     -o bin/obj/vera.o
+ca65 --cpu 65c02 -t cx16 -I inc -g src/unpacker.s -o bin/obj/unpacker.o
+ca65 --cpu 65c02 -t cx16 -I inc -g src/unpack.s   -o bin/obj/unpack.o 
 
 # link object files
 ld65 -C cx16-asm.cfg -o bin/another.prg \
   bin/obj/main.o bin/obj/bank.o bin/obj/engine.o bin/obj/input.o bin/obj/irq.o \
   bin/obj/opcodes.o bin/obj/polygon.o bin/obj/resource.o bin/obj/sample.o \
-  bin/obj/tasks.o bin/obj/text.o bin/obj/vera.o cx16.lib
+  bin/obj/tasks.o bin/obj/text.o bin/obj/vera.o bin/obj/unpacker.o bin/obj/unpack.o cx16.lib
 ```
 
 ## Known Issues
