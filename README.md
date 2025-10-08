@@ -4,6 +4,8 @@
 
 A port of the classic game Another World (Out of This World) to the Commander X16.
 
+For more information about the port and how it was made please see my forum posts on the Commander X16 Forums: [Another World (Out of this World) port for the CX16](https://cx16forum.com/forum/viewtopic.php?t=7906)
+
 ## Installation
 
 1. Download the file `ANOTHER.PRG` from the [Releases](https://github.com/cosmicr/anotherX16/releases)
