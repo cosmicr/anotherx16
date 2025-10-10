@@ -236,12 +236,15 @@
         read_script_byte
         sta opcode
         
-        bbr7 opcode, @test_draw_poly ; branch if bit 7 is clear
+        bit #$80            ; Test bit 7 (0x80)
+        beq @test_draw_poly  ; bit 7 is 0
         jsr opcode_draw_poly_background
         bra while_loop
 
         @test_draw_poly:
-        bbr6 opcode, @execute_opcode ; branch if bit 6 is clear
+        lda opcode
+        bit #$40            ; Test bit 6 (0x40)
+        beq @execute_opcode  ; bit 6 is 0
         jsr opcode_draw_poly_sprite
         bra while_loop
 
@@ -319,7 +322,8 @@
     lda opcode          ; Load opcode into A once
 
     ; Test bit 4 (0x10) Value Type
-    bbr4 opcode, bit4_clear ; If bit 4 is clear, execute bit4_clear
+    bit #$10            ; Test bit 4 
+    beq bit4_clear      ; Branch if bit 4 is clear
 
     bit4_set:
         bit #$20            ; Test bit 5 (0x20) Position Mode

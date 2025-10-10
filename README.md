@@ -44,6 +44,8 @@ The `-joy1` option tells the emulator to use a gamepad for joystick 1 input.
 
 ### Real Hardware
 
+**⚠️ Users have reported issues running on VERA Release 48, please use Release 47.0.2 until a fix is released.**
+
 To run the game on real hardware, copy the `ANOTHER.PRG` file and all the required bank files to your SD Card.
 
 Then, start the Commander X16, and at the BASIC prompt, type:
