@@ -280,16 +280,6 @@ end:
 
 .macro mulx_addr addra, addrb
 .scope
-    ; Save original cache values
-    lda FX_CACHE_L
-    pha
-    lda FX_CACHE_M
-    pha
-    lda FX_CACHE_H
-    pha
-    lda FX_CACHE_U
-    pha
-
     ; DCSEL = 2 for FX control registers
     lda #(2 << 1)
     sta VERA::CTRL
@@ -346,16 +336,6 @@ end:
     ; Cleanup
     stz FX_MULT
     stz FX_CTRL
-    
-    ; Restore cache values
-    ply
-    sty FX_CACHE_U
-    ply
-    sty FX_CACHE_H
-    ply
-    sty FX_CACHE_M
-    ply
-    sty FX_CACHE_L
 .endscope
 .endmacro
 
