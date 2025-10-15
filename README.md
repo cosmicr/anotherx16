@@ -116,33 +116,11 @@ ld65 -C cx16-asm.cfg -o bin\another.prg bin\obj\main.o bin\obj\bank.o bin\obj\en
 
 ### Linux / MacOS
 
-I haven't tested the build process on Linux or MacOS, but it should be similar to Windows. You may need to adjust the paths and commands accordingly.
+I haven't thoroughly tested the build process on Linux or MacOS, but the game can be built using the makefile provided.
 
 ```bash
-# create directories
-mkdir -p bin/obj
-
-# assemble source files (main first)
-ca65 --cpu 65c02 -t cx16 -I inc -g src/main.s     -o bin/obj/main.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/bank.s     -o bin/obj/bank.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/engine.s   -o bin/obj/engine.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/input.s    -o bin/obj/input.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/irq.s      -o bin/obj/irq.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/opcodes.s  -o bin/obj/opcodes.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/polygon.s  -o bin/obj/polygon.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/resource.s -o bin/obj/resource.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/sample.s   -o bin/obj/sample.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/tasks.s    -o bin/obj/tasks.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/text.s     -o bin/obj/text.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/vera.s     -o bin/obj/vera.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/unpacker.s -o bin/obj/unpacker.o
-ca65 --cpu 65c02 -t cx16 -I inc -g src/unpack.s   -o bin/obj/unpack.o 
-
-# link object files
-ld65 -C cx16-asm.cfg -o bin/another.prg \
-  bin/obj/main.o bin/obj/bank.o bin/obj/engine.o bin/obj/input.o bin/obj/irq.o \
-  bin/obj/opcodes.o bin/obj/polygon.o bin/obj/resource.o bin/obj/sample.o \
-  bin/obj/tasks.o bin/obj/text.o bin/obj/vera.o bin/obj/unpacker.o bin/obj/unpack.o cx16.lib
+cd anotherX16
+make
 ```
 
 ## Known Issues
