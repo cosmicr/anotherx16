@@ -746,7 +746,7 @@
 
     cmp #$0F ; limit shift count to 15
     bcc :+
-    stp
+    brk
     :
     and #$0F ; no shifting by more than 15
     tay ; shift count

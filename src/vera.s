@@ -175,8 +175,10 @@ y_scale_table:
 ; Initialise the VERA
 ; ---------------------------------------------------------------
 .proc init_vera
-    ; Disable all VERA layers
-    stz VERA::DISP::VIDEO
+    ; Save video mode
+    lda VERA::DISP::VIDEO
+    and #15
+    sta VERA::DISP::VIDEO 
 
     ; Set layer 0 to 4bpp bitmap mode
     lda #VERA::BITMAP4BPP
@@ -198,12 +200,6 @@ y_scale_table:
     ora #(VERA::TILE::WIDTH8 | VERA::TILE::HEIGHT8)
     sta VERA::L1::TILE_BASE
 
-    ; Set the screen resolution 
-    lda #((SCREEN_WIDTH << 7) / 640)
-    sta VERA::DISP::HSCALE
-    lda #((SCREEN_HEIGHT << 7) / 480)
-    sta VERA::DISP::VSCALE  
-
     ; Clear memory to black
     ldx #0
     loop:
@@ -222,10 +218,53 @@ y_scale_table:
         cpx #4
         bne loop
 
-    ; Enable layer 0 (only) put CX16 into VGA mode
-    lda #(VERA::DISP::ENABLE::LAYER0 | VERA::DISP::MODE::VGA)
-    sta VERA::DISP::VIDEO
+    ; Check video mode saved earlier to restore ntsc or vga mode
+    lda VERA::DISP::VIDEO
+    and #3
+    cmp #1
+    beq set_vga_mode
+    ; otherwise ntsc/rgb
+
+    ; ntsc/rgb approx. hstart=$0B, hstop $96, vstart $0B, vstop $E5, hscale= $3C, vscale=$38
+    lda VERA::CTRL
+    ora #(1 << 1)
+    sta VERA::CTRL
     
+    lda #(NTSC_HSTART >> 2)
+    sta VERA::DISP::HSTART
+    lda #(NTSC_HSTOP >> 2)
+    sta VERA::DISP::HSTOP
+    lda #(NTSC_VSTART >> 1)
+    sta VERA::DISP::VSTART
+    lda #(NTSC_VSTOP >> 1)
+    sta VERA::DISP::VSTOP
+
+    stz VERA::CTRL
+
+    ; Set the screen resolution 
+    lda #((SCREEN_WIDTH << 7) / NTSC_ACTIVE_WIDTH)
+    sta VERA::DISP::HSCALE
+    lda #((SCREEN_HEIGHT << 7) / NTSC_ACTIVE_HEIGHT)
+    sta VERA::DISP::VSCALE  
+
+    ; set border colour to 0
+    stz VERA::DISP::FRAME
+
+    bra set_layer
+
+    set_vga_mode:
+    ; Set the screen resolution 
+    lda #((SCREEN_WIDTH << 7) / 640)
+    sta VERA::DISP::HSCALE
+    lda #((SCREEN_HEIGHT << 7) / 480)
+    sta VERA::DISP::VSCALE  
+        
+    set_layer:
+    ; Enable layer 0 (only) 
+    lda VERA::DISP::VIDEO
+    ora #(VERA::DISP::ENABLE::LAYER0)
+    sta VERA::DISP::VIDEO
+
     rts
 .endproc
 

@@ -24,6 +24,14 @@ SCREEN_HEIGHT   = 192 ; (180 to 192) but looks worse the lower you go
 ; page size is screen width * screen height / 2 to the nearest multiple of 2048
 PAGE_SIZE       = ((320 * SCREEN_HEIGHT) / 2 + 2047) & $FFFFF800 ; = $7800 (30720 bytes)
 
+NTSC_HSTART = 40 ; multiple of 4
+NTSC_HSTOP = 600 ; multiple of 4
+NTSC_VSTART = 28 ; multiple of 2
+NTSC_VSTOP = 456 ; multiple of 2
+NTSC_ACTIVE_WIDTH  = NTSC_HSTOP - NTSC_HSTART
+NTSC_ACTIVE_HEIGHT = NTSC_VSTOP - NTSC_VSTART
+
+
 FX_CTRL = $9F29
 FX_MULT = $9F2C
 FX_CACHE_L = $9F29

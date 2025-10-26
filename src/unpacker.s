@@ -23,6 +23,7 @@
     row:                    .res 1
     col:                    .res 1
     offset:                 .res 2
+    progress_counter:       .res 1
 
 .segment "DATA"
     str_bank:               .asciiz "bank00"
@@ -36,10 +37,11 @@
     str_error_memlist_bin:  .asciiz "error loading memlist.bin - is the game data present?"
     str_error_bankload:     .asciiz "error loading bank file - is the game data present?"
     str_loading:            .byte "loading banks...", $0D, $00
-    str_unpacking:          .byte "unpacking 146 data files - this may take some time, please wait...", $0D, $00
+    str_unpacking:          .byte "unpacking 146 data files (approx. 5 mins) please wait...", $0D, $00
     str_unpack_complete:    .byte "unpacking complete.", $0D, $0D, $00
     str_remove_copy_protection: .byte "do you want to remove copy protection? (y/n) ", $00
-    str_data_missing:      .byte "data files have not yet been unpacked, do you wish to proceed? (y/n) ", $00
+    ;                           "                                                            "
+    str_data_missing:      .byte "data files not unpacked, do you want to do it now? (y/n) ", $00
     str_press_enter:      .asciiz "press <return> to begin game..."
 
     patch_data:
@@ -54,7 +56,7 @@ hex_table:
 ; Main program
 ; ---------------------------------------------------------------
 .proc unpacker_start
-    jsr CINT ; reset the screen
+    jsr CINT
 
     jsr check_data_exists
     jcc done ; all data files exist, continue
@@ -649,15 +651,16 @@ done:
 ; ---------------------------------------------------------------
 ; Unpack data
 ; ---------------------------------------------------------------
+BAR_WIDTH = 37
 .proc unpack_data
     ; draw the progress bar outline
     clc
     ldx #10
-    ldy #2
+    ldy #3         ; Center for 36-char bar
     jsr PLOT
     lda #117
     jsr CHROUT
-    ldx #73
+    ldx #BAR_WIDTH
     top_loop:
         lda #99
         jsr CHROUT
@@ -667,11 +670,11 @@ done:
     jsr CHROUT
     clc
     ldx #12
-    ldy #2
+    ldy #3
     jsr PLOT
     lda #106
     jsr CHROUT
-    ldx #73
+    ldx #BAR_WIDTH
     bottom_loop:
         lda #99
         jsr CHROUT
@@ -681,37 +684,39 @@ done:
     jsr CHROUT
     clc
     ldx #11
-    ldy #2
-    jsr PLOT
-    lda #98 ; |
-    jsr CHROUT
-    clc
-    ldx #11
-    ldy #76
-    jsr PLOT
-    lda #98 ; |
-    jsr CHROUT
-    clc
-    ldx #11
     ldy #3
+    jsr PLOT
+    lda #98 ; |
+    jsr CHROUT
+    clc
+    ldx #11
+    ldy #(BAR_WIDTH + 4)
+    jsr PLOT
+    lda #98 ; |
+    jsr CHROUT
+    clc
+    ldx #11
+    ldy #4         ; Start fill at column 15
     jsr PLOT
     
     lda #<resource_table
     sta memlist_ptr
     lda #>resource_table
     sta memlist_ptr+1
+    
+    stz progress_counter    ; Add counter for scaling
+    stz mod                 ; Initialize half/full block toggle
+    lda #4
+    sta col
+    
     ldx #0
     resource_loop:
         ; setup the datafile name
         txa
         jsr setup_dataname
 
-        ; save the current row and col
+        ; Display current resource number (every iteration)
         phx
-        sec
-        jsr PLOT
-        stx row
-        sty col
         clc
         ldx #9
         ldy #3
@@ -723,33 +728,48 @@ done:
         ldx #<str_data
         ldy #>str_data
         jsr print_string
-        clc
-        ldx row
-        ldy col
-        jsr PLOT
         
         plx
 
+        ; Update progress bar every n resources
+        lda progress_counter
+        inc progress_counter
+        cmp #((146 / BAR_WIDTH) / 2)
+        bcc skip_progress
+        
+        ; Reset counter
+        stz progress_counter
+        
+        ; Draw half or full block
+        phx
+
+        clc
+        ldx #11
+        ldy col
+        jsr PLOT
+
         lda mod
         beq half
-        ; full
-        lda #157 ; backspace
-        jsr CHROUT
+        ; full - go back and complete the block
         lda #18 ; reverse on
         jsr CHROUT
         lda #' '
         jsr CHROUT
+        inc col
         bra continue
         half:
-        jsr CHROUT
         lda #146 ; reverse off
         jsr CHROUT
-        lda #161
+        lda #161 ; left half block
         jsr CHROUT
         continue:
         lda #1
         eor mod
         sta mod
+        
+        plx
+        
+        skip_progress:
 
         ; skip any with zero size
         ldy #resource::uncompressed
